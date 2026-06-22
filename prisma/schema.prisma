@@ -1,0 +1,637 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/* ================= ENUMS ================= */
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSED
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  DIVORCED
+  WIDOWED
+}
+
+enum NotificationType {
+  SYSTEM
+  EVENT
+  SERMON
+  ANNOUNCEMENT
+  PRAYER
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  POS
+  ONLINE
+}
+
+enum GivingType {
+  TITHE
+  OFFERING
+  THANKSGIVING
+  BUILDING_FUND
+  MISSION
+  PARTNERSHIP
+  DONATION
+  OTHER
+}
+
+enum PrayerStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum CounsellingStatus {
+  PENDING
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum VolunteerStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FollowUpStatus {
+  PENDING
+  CONTACTED
+  DISCIPLED
+  JOINED_CHURCH
+}
+
+enum StreamPlatform {
+  YOUTUBE
+  FACEBOOK
+  MIXLR
+  CUSTOM
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  AUDIO
+}
+
+enum LeadershipLevel {
+  BASIC
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum EnrollmentStatus {
+  IN_PROGRESS
+  COMPLETED
+  DROPPED
+}
+
+enum WorkerTrainingStage {
+  APPLIED
+  INTERVIEWED
+  LEADERSHIP_CLASS
+  DEPARTMENT_ORIENTATION
+  ACTIVE_WORKER
+  PAUSED
+  REJECTED
+}
+
+enum DepartmentStatus {
+  ACTIVE
+  INACTIVE
+  TRANSFERRED
+  SUSPENDED
+}
+
+enum DepartmentRole {
+  MEMBER
+  LEADER
+  ASSISTANT_LEADER
+  SECRETARY
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MEMBER
+}
+
+/* ================= CORE AUTH ================= */
+
+model User {
+  id             String   @id @default(cuid())
+
+  email          String   @unique
+  passwordHash   String
+
+  fullName       String
+  phoneNumber    String?
+
+  role           Role     @default(MEMBER)
+
+  isActive       Boolean  @default(true)
+  emailVerified  Boolean  @default(false)
+
+  lastLoginAt    DateTime?
+
+  deletedAt      DateTime?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  createdById    String?
+  updatedById    String?
+
+  @@index([role])
+  @@index([isActive])
+}
+
+/* ================= AUTH SUPPORT ================= */
+
+model PasswordResetToken {
+  id         String   @id @default(cuid())
+
+  email      String
+  token      String   @unique
+  expiresAt  DateTime
+
+  createdAt  DateTime @default(now())
+
+  deletedAt  DateTime?
+
+  @@index([email])
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+
+  email      String
+  token      String   @unique
+  expiresAt  DateTime
+
+  createdAt  DateTime @default(now())
+
+  deletedAt  DateTime?
+
+  @@index([email])
+}
+
+/* ================= AUDIT ================= */
+
+model AuditLog {
+  id          String   @id @default(cuid())
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  action      String
+  entity      String?
+  entityId    String?
+  ipAddress   String?
+
+  createdAt   DateTime @default(now())
+}
+
+/* ================= MEMBER ================= */
+
+model Member {
+  id                String   @id @default(cuid())
+
+  firstName         String
+  lastName          String
+  otherName         String?
+
+  email             String?
+  phoneNumber       String?
+
+  gender            Gender?
+  dateOfBirth       DateTime?
+  maritalStatus     MaritalStatus?
+
+  address           String?
+  occupation        String?
+  baptismalStatus   String?
+
+  isWorker          Boolean @default(false)
+
+  userId            String? @unique
+  user              User?   @relation(fields: [userId], references: [id])
+
+  deletedAt         DateTime?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  createdById       String?
+  updatedById       String?
+
+  @@index([lastName])
+}
+
+/* ================= DEPARTMENT ================= */
+
+model Department {
+  id            String   @id @default(cuid())
+
+  name          String   @unique
+  slug          String   @unique
+  description   String?
+
+  leaderId      String?
+  leader        Member?  @relation(fields: [leaderId], references: [id])
+
+  members       DepartmentMember[]
+  trainees      WorkerInTraining[]
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdById   String?
+  updatedById   String?
+}
+
+model DepartmentMember {
+  id            String   @id @default(cuid())
+
+  memberId      String
+  member        Member   @relation(fields: [memberId], references: [id])
+
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id])
+
+  role          DepartmentRole @default(MEMBER)
+  status        DepartmentStatus @default(ACTIVE)
+
+  joinedAt      DateTime @default(now())
+  leftAt        DateTime?
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdById   String?
+  updatedById   String?
+
+  @@unique([memberId, departmentId])
+  @@index([departmentId])
+  @@index([memberId])
+}
+
+/* ================= EVENT ================= */
+
+model Event {
+  id            String   @id @default(cuid())
+
+  title         String
+  description   String?
+  location      String?
+
+  startDate     DateTime
+  endDate       DateTime?
+
+  bannerImage   String?
+  isPublished   Boolean @default(false)
+
+  attendances   Attendance[]
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdById   String?
+  updatedById   String?
+
+  @@index([startDate])
+}
+
+model Attendance {
+  id          String   @id @default(cuid())
+
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+
+  eventId     String
+  event       Event    @relation(fields: [eventId], references: [id])
+
+  status      AttendanceStatus @default(PRESENT)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([memberId, eventId])
+  @@index([eventId])
+}
+
+/* ================= GIVING ================= */
+
+model Giving {
+  id              String   @id @default(cuid())
+
+  memberId        String?
+  member          Member?  @relation(fields: [memberId], references: [id])
+
+  amount          Decimal  @db.Decimal(12, 2)
+
+  type            GivingType
+  reference       String? @unique
+  paymentMethod   PaymentMethod?
+  notes           String?
+
+  deletedAt       DateTime?
+
+  createdAt       DateTime @default(now())
+
+  @@index([type])
+}
+
+/* ================= CONTENT ================= */
+
+model BlogPost {
+  id            String   @id @default(cuid())
+
+  title         String
+  slug          String   @unique
+  content       String   @db.Text
+  excerpt       String?
+  coverImage    String?
+
+  isPublished   Boolean @default(false)
+
+  authorId      String?
+  author        User?   @relation(fields: [authorId], references: [id])
+
+  publishedAt   DateTime?
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  createdById   String?
+  updatedById   String?
+
+  @@index([isPublished])
+}
+
+model Sermon {
+  id            String   @id @default(cuid())
+
+  title         String
+  preacher      String
+  scriptureText String?
+  summary       String? @db.Text
+
+  videoUrl      String?
+  audioUrl      String?
+  thumbnailUrl  String?
+
+  sermonDate    DateTime
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([sermonDate])
+}
+
+model MediaGallery {
+  id            String   @id @default(cuid())
+
+  title         String
+  type          MediaType
+
+  url           String
+  thumbnail     String?
+
+  description   String?
+
+  eventId       String?
+  event         Event?  @relation(fields: [eventId], references: [id])
+
+  uploadedById  String?
+  uploadedBy    User?   @relation(fields: [uploadedById], references: [id])
+
+  createdAt     DateTime @default(now())
+
+  @@index([type])
+}
+
+/* ================= COMMUNICATION ================= */
+
+model Notification {
+  id          String   @id @default(cuid())
+
+  title       String
+  message     String   @db.Text
+  type        NotificationType
+
+  isRead      Boolean @default(false)
+
+  userId      String?
+  user        User?   @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ContactMessage {
+  id            String   @id @default(cuid())
+
+  fullName      String
+  email         String
+  phoneNumber   String?
+  subject       String
+  message       String   @db.Text
+
+  isResolved    Boolean @default(false)
+
+  assignedToId  String?
+  assignedTo    User?   @relation(fields: [assignedToId], references: [id])
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+}
+
+/* ================= MINISTRY ================= */
+
+model Ministry {
+  id            String   @id @default(cuid())
+
+  name          String   @unique
+  description   String?
+
+  leaderId      String?
+  leader        Worker?  @relation(fields: [leaderId], references: [id])
+
+  workers       Worker[]
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/* ================= WORKER SYSTEM ================= */
+
+model Worker {
+  id            String   @id @default(cuid())
+
+  memberId      String   @unique
+  member        Member   @relation(fields: [memberId], references: [id])
+
+  departmentId  String?
+  department    Department? @relation(fields: [departmentId], references: [id])
+
+  ministryId    String?
+  ministry      Ministry? @relation(fields: [ministryId], references: [id])
+
+  position      String?
+  isActive      Boolean @default(true)
+
+  joinedAt      DateTime @default(now())
+
+  attendances   WorkerAttendance[]
+  mentees       WorkerInTraining[] @relation("WorkerMentorship")
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([departmentId])
+}
+
+model WorkerAttendance {
+  id          String   @id @default(cuid())
+
+  workerId    String
+  worker      Worker   @relation(fields: [workerId], references: [id])
+
+  date        DateTime
+  status      AttendanceStatus
+
+  createdAt   DateTime @default(now())
+
+  @@unique([workerId, date])
+}
+
+/* ================= TRAINING ================= */
+
+model LeadershipClass {
+  id            String   @id @default(cuid())
+
+  title         String
+  description   String? @db.Text
+  level         LeadershipLevel @default(BASIC)
+
+  startDate     DateTime?
+  endDate       DateTime?
+
+  isActive      Boolean @default(true)
+
+  facilitatorId String?
+  facilitator   Member? @relation(fields: [facilitatorId], references: [id])
+
+  sessions      LeadershipSession[]
+  enrollments   LeadershipEnrollment[]
+
+  deletedAt     DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model LeadershipSession {
+  id            String   @id @default(cuid())
+
+  classId       String
+  class         LeadershipClass @relation(fields: [classId], references: [id])
+
+  title         String?
+
+  scheduledAt   DateTime
+  location      String?
+  meetingLink   String?
+
+  createdAt     DateTime @default(now())
+
+  @@index([scheduledAt])
+}
+
+model LeadershipEnrollment {
+  id            String   @id @default(cuid())
+
+  classId       String
+  class         LeadershipClass @relation(fields: [classId], references: [id])
+
+  memberId      String
+  member        Member   @relation(fields: [memberId], references: [id])
+
+  status        EnrollmentStatus @default(IN_PROGRESS)
+  progress      Int @default(0)
+
+  enrolledAt    DateTime @default(now())
+  completedAt   DateTime?
+
+  @@unique([classId, memberId])
+}
+
+model WorkerInTraining {
+  id              String   @id @default(cuid())
+
+  memberId        String
+  member          Member   @relation(fields: [memberId], references: [id])
+
+  departmentId    String
+  department      Department @relation(fields: [departmentId], references: [id])
+
+  departmentMemberId String?
+  departmentMember   DepartmentMember? @relation(fields: [departmentMemberId], references: [id])
+
+  stage           WorkerTrainingStage @default(APPLIED)
+
+  leadershipClassId String?
+  leadershipClass LeadershipClass? @relation(fields: [leadershipClassId], references: [id])
+
+  mentorId        String?
+  mentor          Member? @relation("Mentorship", fields: [mentorId], references: [id])
+
+  notes           String? @db.Text
+
+  startDate       DateTime @default(now())
+  completedAt     DateTime?
+
+  isActive        Boolean @default(true)
+
+  deletedAt       DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([departmentId])
+  @@index([stage])
+}
