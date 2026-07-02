@@ -8,26 +8,91 @@ datasource db {
 }
 
 model User {
-  id               String           @id @default(dbgenerated("(gen_random_uuid())::text"))
-  email            String           @unique
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+
+  // Identity
+  email            String    @unique
   fullName         String
   phoneNumber      String?
-  role             Role             @default(MEMBER)
-  isActive         Boolean          @default(true)
-  deletedAt        DateTime?        @db.Timestamptz(6)
-  createdAt        DateTime         @default(now()) @db.Timestamptz(6)
-  updatedAt        DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Authentication
+  passwordHash     String    @db.Text
+  refreshTokenHash String?   @db.Text
+
+  // Account status
+  role             Role      @default(MEMBER)
+  isActive         Boolean   @default(true)
+
+  // Email verification
+  emailVerified    Boolean   @default(false)
+  emailVerifiedAt  DateTime? @db.Timestamptz(6)
+
+  // Security
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime? @db.Timestamptz(6)
+  tokenVersion        Int       @default(0)
+
+  // Password management
+  passwordChangedAt   DateTime? @db.Timestamptz(6)
+  lastPasswordResetAt DateTime? @db.Timestamptz(6)
+
+  // Login tracking
+  lastLoginAt         DateTime? @db.Timestamptz(6)
+
+  // Soft delete
+  deletedAt        DateTime? @db.Timestamptz(6)
+
+  // Audit
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
   createdById      String?
   updatedById      String?
+
+  // Relations
   auditLogs        AuditLog[]
   blogPosts        BlogPost[]
   assignedMessages ContactMessage[]
-  uploadedMedia    MediaGallery[]   @relation("UserUploadedMedia")
+  uploadedMedia    MediaGallery[] @relation("UserUploadedMedia")
   member           Member?
   notifications    Notification[]
 
   @@index([role])
   @@index([isActive])
+  @@index([emailVerified])
+  @@index([lockedUntil])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+
+  tokenHash String   @unique @db.Text
+
+  expiresAt DateTime
+
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+
+  tokenHash String   @unique @db.Text
+
+  expiresAt DateTime
+
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model AuditLog {
