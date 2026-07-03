@@ -56,6 +56,9 @@ model User {
   member           Member?
   notifications    Notification[]
 
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+
   @@index([role])
   @@index([isActive])
   @@index([emailVerified])

@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 
 import { AuthService } from './auth.service';
-
+import { Throttle } from '@nestjs/throttler';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -70,6 +70,23 @@ export class AuthController {
   ) {
     return this.authService.logout(userId);
   }
+
+@UseGuards(JwtAuthGuard)
+@Throttle({
+  default: {
+    limit: 3,
+    ttl: 60_000,
+  },
+})
+@Post('resend-verification')
+@HttpCode(HttpStatus.OK)
+resendVerificationEmail(
+  @CurrentUser('id') userId: string,
+) {
+  return this.authService.resendVerificationEmail(
+    userId,
+  );
+}
 
   @UseGuards(JwtAuthGuard)
   @Get('me')

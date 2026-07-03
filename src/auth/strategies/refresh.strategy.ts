@@ -2,11 +2,11 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { PassportStrategy } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PassportStrategy } from '@nestjs/passport';
 
-import { PrismaService } from '../../../prisma/prisma.service';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Request } from 'express';
 
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 
@@ -17,27 +17,24 @@ export class RefreshTokenStrategy extends PassportStrategy(
 ) {
   constructor(
     configService: ConfigService,
-    private readonly prisma: PrismaService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest:
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
 
       ignoreExpiration: false,
 
-      secretOrKey: configService.getOrThrow<string>(
-        'JWT_REFRESH_SECRET',
-      ),
+      secretOrKey:
+        configService.getOrThrow<string>(
+          'JWT_REFRESH_SECRET',
+        ),
 
       passReqToCallback: true,
     });
   }
 
   async validate(
-    req: Request & {
-      headers: {
-        authorization?: string;
-      };
-    },
+    req: Request,
     payload: JwtPayload,
   ) {
     const authorization =
@@ -49,48 +46,26 @@ export class RefreshTokenStrategy extends PassportStrategy(
       );
     }
 
-    const refreshToken = authorization.replace(
-      'Bearer ',
-      '',
-    );
+    const [scheme, refreshToken] =
+      authorization.split(' ');
 
-    const user = await this.prisma.user.findUnique({
-      where: {
-        id: payload.sub,
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        isActive: true,
-        refreshTokenHash: true,
-      },
-    });
-
-    if (!user) {
+    if (
+      scheme !== 'Bearer' ||
+      !refreshToken
+    ) {
       throw new UnauthorizedException(
-        'User not found.',
+        'Invalid authorization header.',
       );
     }
 
-    if (!user.isActive) {
+    if (!payload.sub) {
       throw new UnauthorizedException(
-        'Account has been disabled.',
-      );
-    }
-
-    if (!user.refreshTokenHash) {
-      throw new UnauthorizedException(
-        'No active session.',
+        'Invalid refresh token payload.',
       );
     }
 
     return {
-      id: user.id,
-      email: user.email,
-      fullName: user.fullName,
-      role: user.role,
+      userId: payload.sub,
       refreshToken,
     };
   }
