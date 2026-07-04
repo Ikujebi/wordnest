@@ -1,7 +1,7 @@
 import { IsOptional, IsInt, Min, Max, IsString, IsEnum, IsBoolean } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Role } from '../../../app/generated/prisma/client';
+import { Role } from '@prisma/client';
 import { USER_LIMITS } from '../users.constants';
 
 export class UserPaginationQueryDto {

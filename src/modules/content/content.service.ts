@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Sermon, BlogPost, Prisma } from '../../../app/generated/prisma/client';
+import { Sermon, BlogPost, Prisma } from '@prisma/client';
 import { UploadSermonDto } from './dto/upload-sermon.dto';
 import { CreatePostDto } from './dto/create-post.dto';
 import slugify from 'slugify';

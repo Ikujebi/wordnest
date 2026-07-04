@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Giving, Prisma } from '../../../app/generated/prisma/client';
+import { Giving, Prisma } from '@prisma/client';
 import { RecordGivingDto } from './dto/record-giving.dto';
 
 @Injectable()

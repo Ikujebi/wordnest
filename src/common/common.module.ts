@@ -1,12 +1,19 @@
 import { Global, Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../prisma/prisma.module';
+
 import { NotificationsService } from './services/notifications.service';
-import { AuditLogInterceptor } from './interceptors/audit-log.interceptor';
 
 @Global()
 @Module({
-  imports: [PrismaModule],
-  providers: [NotificationsService, AuditLogInterceptor],
-  exports: [NotificationsService, AuditLogInterceptor],
+  imports: [PrismaModule, ConfigModule],
+
+  providers: [
+    NotificationsService,
+  ],
+
+  exports: [
+    NotificationsService,
+  ],
 })
 export class CommonModule {}

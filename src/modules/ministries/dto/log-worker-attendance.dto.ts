@@ -1,5 +1,5 @@
 import { IsDateString, IsEnum, IsNotEmpty, IsUUID } from 'class-validator';
-import { AttendanceStatus } from '../../../../app/generated/prisma/client';
+import { AttendanceStatus } from '@prisma/client';
 
 export class LogWorkerAttendanceDto {
   @IsNotEmpty()

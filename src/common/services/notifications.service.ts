@@ -1,6 +1,6 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Notification, NotificationType } from '../../../app/generated/prisma/client';
+import { Notification, NotificationType } from '@prisma/client';
 
 export interface DispatchNotificationDto {
   title: string;

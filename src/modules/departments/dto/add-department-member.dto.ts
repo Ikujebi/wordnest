@@ -1,5 +1,5 @@
 import { IsEnum, IsNotEmpty, IsUUID } from 'class-validator';
-import { DepartmentRole, DepartmentStatus } from '../../../../app/generated/prisma/client';
+import { DepartmentRole, DepartmentStatus } from '@prisma/client';
 
 export class AddDepartmentMemberDto {
   @IsNotEmpty()

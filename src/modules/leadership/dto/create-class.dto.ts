@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsDateString, IsEnum, IsBoolean, IsNotEmpty, IsOptional, IsString, IsUUID, Length } from 'class-validator';
-import { LeadershipLevel } from '../../../../app/generated/prisma/client';
+import { LeadershipLevel } from '@prisma/client';
 
 export class CreateClassDto {
   @IsNotEmpty()

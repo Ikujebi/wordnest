@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { LeadershipClass, LeadershipEnrollment, Prisma } from '../../../app/generated/prisma/client';
+import { LeadershipClass, LeadershipEnrollment, Prisma } from '@prisma/client';
 import { CreateClassDto } from './dto/create-class.dto';
 import { EnrollMemberDto } from './dto/enroll-member.dto';
 import { UpdateProgressDto } from './dto/update-progress.dto';

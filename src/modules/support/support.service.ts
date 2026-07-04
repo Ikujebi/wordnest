@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ContactMessage, MediaGallery, Prisma } from '../../../app/generated/prisma/client';
+import { ContactMessage, MediaGallery, Prisma } from '@prisma/client';
 import { SubmitMessageDto } from './dto/submit-message.dto';
 import { ResolveMessageDto } from './dto/resolve-message.dto';
 import { AttachMediaDto } from './dto/attach-media.dto';

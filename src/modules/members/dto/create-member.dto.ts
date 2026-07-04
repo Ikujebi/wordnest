@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsDateString, IsEmail, IsEnum, IsBoolean, IsNotEmpty, IsOptional, IsString, Length, Matches } from 'class-validator';
-import { Gender, MaritalStatus } from '../../../../app/generated/prisma/client';
+import { Gender, MaritalStatus } from '@prisma/client';
 
 export class CreateMemberDto {
   @IsNotEmpty()

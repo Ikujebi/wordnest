@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUrl, IsUUID, Length } from 'class-validator';
-import { MediaType } from '../../../../app/generated/prisma/client';
+import { MediaType } from '@prisma/client';
 
 export class AttachMediaDto {
   @IsNotEmpty()

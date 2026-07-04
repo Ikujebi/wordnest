@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsEnum, IsNotEmpty, IsNumberString, IsOptional, IsString, IsUUID, Length } from 'class-validator';
-import { GivingType, PaymentMethod } from '../../../../app/generated/prisma/client';
+import { GivingType, PaymentMethod } from '@prisma/client';
 
 export class RecordGivingDto {
   @IsOptional()

@@ -28,7 +28,7 @@ export class AuthEmailService {
             this.prisma.emailVerificationToken.create({
                 data: { 
                     userId: user.id, 
-                    tokenHash: rawToken, // 👈 Using schema's exact property name
+                    token: rawToken, // 👈 Using schema's exact property name
                     expiresAt 
                 },
             }),
@@ -58,7 +58,7 @@ export class AuthEmailService {
             this.prisma.passwordResetToken.create({
                 data: { 
                     userId: user.id, 
-                    tokenHash: rawToken, // 👈 Using schema's exact property name
+                    token: rawToken, // 👈 Using schema's exact property name
                     expiresAt 
                 },
             }),
@@ -80,7 +80,7 @@ export class AuthEmailService {
     async validatePasswordResetToken(rawToken: string) {
         return this.prisma.passwordResetToken.findFirst({
             where: {
-                tokenHash: rawToken, // 👈 Exact lookups prevent CPU blocking
+                token: rawToken, // 👈 Exact lookups prevent CPU blocking
                 usedAt: null,
                 expiresAt: { gt: new Date() },
             },
@@ -94,7 +94,7 @@ export class AuthEmailService {
     async validateEmailVerificationToken(rawToken: string) {
         return this.prisma.emailVerificationToken.findFirst({
             where: {
-                tokenHash: rawToken, // 👈 Exact lookups prevent CPU blocking
+                token: rawToken, // 👈 Exact lookups prevent CPU blocking
                 usedAt: null,
                 expiresAt: { gt: new Date() },
             },

@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Ministry, WorkerAttendance, Prisma } from '../../../app/generated/prisma/client';
+import { Ministry, WorkerAttendance, Prisma } from '@prisma/client';
 import { CreateMinistryDto } from './dto/create-ministry.dto';
 import { LogWorkerAttendanceDto } from './dto/log-worker-attendance.dto';
 

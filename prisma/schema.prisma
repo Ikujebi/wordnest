@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../app/generated/prisma"
+  provider = "prisma-client-js"
+ 
 }
 
 datasource db {
@@ -8,96 +8,49 @@ datasource db {
 }
 
 model User {
-  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id          String  @id @default(dbgenerated("(gen_random_uuid())::text"))
+  email       String  @unique
+  fullName    String
+  phoneNumber String?
 
-  // Identity
-  email            String    @unique
-  fullName         String
-  phoneNumber      String?
+  passwordHash String
 
-  // Authentication
-  passwordHash     String    @db.Text
-  refreshTokenHash String?   @db.Text
+  emailVerified   Boolean   @default(false)
+  emailVerifiedAt DateTime?
 
-  // Account status
-  role             Role      @default(MEMBER)
-  isActive         Boolean   @default(true)
+  lastLoginAt       DateTime?
+  passwordChangedAt DateTime?
 
-  // Email verification
-  emailVerified    Boolean   @default(false)
-  emailVerifiedAt  DateTime? @db.Timestamptz(6)
+  refreshTokenHash    String?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
 
-  // Security
-  failedLoginAttempts Int      @default(0)
-  lockedUntil         DateTime? @db.Timestamptz(6)
-  tokenVersion        Int       @default(0)
+  profilePictureUrl      String?
+  profilePicturePublicId String?
 
-  // Password management
-  passwordChangedAt   DateTime? @db.Timestamptz(6)
-  lastPasswordResetAt DateTime? @db.Timestamptz(6)
+  role     Role    @default(MEMBER)
+  isActive Boolean @default(true)
 
-  // Login tracking
-  lastLoginAt         DateTime? @db.Timestamptz(6)
+  deletedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
 
-  // Soft delete
-  deletedAt        DateTime? @db.Timestamptz(6)
+  createdById String?
+  updatedById String?
 
-  // Audit
-  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  createdById      String?
-  updatedById      String?
-
-  // Relations
   auditLogs        AuditLog[]
   blogPosts        BlogPost[]
   assignedMessages ContactMessage[]
-  uploadedMedia    MediaGallery[] @relation("UserUploadedMedia")
+  uploadedMedia    MediaGallery[]   @relation("UserUploadedMedia")
   member           Member?
   notifications    Notification[]
 
-  passwordResetTokens     PasswordResetToken[]
+  // 🔥 ADD THESE TWO LINES
   emailVerificationTokens EmailVerificationToken[]
-   profilePictureUrl       String?
-  profilePicturePublicId  String?
+  passwordResetTokens     PasswordResetToken[]
 
   @@index([role])
   @@index([isActive])
-  @@index([emailVerified])
-  @@index([lockedUntil])
-}
-
-model PasswordResetToken {
-  id        String   @id @default(uuid())
-
-  tokenHash String   @unique @db.Text
-
-  expiresAt DateTime
-
-  usedAt    DateTime?
-
-  createdAt DateTime @default(now())
-
-  userId    String
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-model EmailVerificationToken {
-  id        String   @id @default(uuid())
-
-  tokenHash String   @unique @db.Text
-
-  expiresAt DateTime
-
-  usedAt    DateTime?
-
-  createdAt DateTime @default(now())
-
-  userId    String
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
 }
 
 model AuditLog {
@@ -109,6 +62,34 @@ model AuditLog {
   ipAddress String?
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   user      User     @relation(fields: [userId], references: [id])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([usedAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([usedAt])
 }
 
 model Member {

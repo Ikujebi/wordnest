@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Event, Attendance, Prisma } from '../../../app/generated/prisma/client';
+import { Event, Attendance, Prisma } from '@prisma/client';
 import { CreateEventDto } from './dto/create-event.dto';
 import { RecordAttendanceDto } from './dto/record-attendance.dto';
 

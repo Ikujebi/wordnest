@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { WorkerInTraining, Worker, Prisma } from '../../../app/generated/prisma/client';
+import { WorkerInTraining, Worker, Prisma } from '@prisma/client';
 import { ApplyTrainingDto } from './dto/apply-training.dto';
 import { UpdatePipelineStageDto } from './dto/update-pipeline-stage.dto';
 

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Department, DepartmentMember, Prisma } from '../../../app/generated/prisma/client';
+import { Department, DepartmentMember, Prisma } from '@prisma/client';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { AddDepartmentMemberDto } from './dto/add-department-member.dto';
 import { UpdateDepartmentMemberDto } from './dto/update-department-member.dto';

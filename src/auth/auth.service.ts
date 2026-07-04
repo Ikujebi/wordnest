@@ -23,7 +23,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { LoginResponse } from './interfaces/login-response.interface';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import { TokenPair } from './interfaces/token-pair.interface';
-import { Role } from '../../app/generated/prisma/client';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -39,6 +39,50 @@ export class AuthService {
         private readonly emailService: AuthEmailService,
         private readonly userService: AuthUserService,
     ) {}
+
+    /**
+     * Validate a user's credentials for Passport local strategy.
+     */
+    async validateUser(email: string, pass: string): Promise<any> {
+        const normalizedEmail = this.userService.normalizeEmail(email);
+        const user = await this.prisma.user.findUnique({
+            where: { email: normalizedEmail },
+            include: { member: { select: { id: true } } },
+        });
+
+        // Fail early if user doesn't exist, is deleted, or is inactive
+        if (!user || user.deletedAt || !user.isActive) {
+            return null;
+        }
+
+        // Check if the account is currently locked out
+        if (this.lockService.isAccountLocked(user.lockedUntil)) {
+            return null;
+        }
+
+        // Verify the password
+        const validPassword = await this.passwordService.verify(user.passwordHash, pass);
+
+        if (!validPassword) {
+            // Track the failure just like you do in the login method
+            await this.lockService.incrementFailedLoginAttempts(user.id);
+            await this.prisma.auditLog.create({
+                data: {
+                    userId: user.id,
+                    action: 'LOGIN_FAILED',
+                    entity: 'User',
+                    entityId: user.id,
+                },
+            });
+            return null;
+        }
+
+        // Reset tracking on successful validation
+        await this.lockService.resetFailedLoginAttempts(user.id);
+
+        // Strip out the password hash and return the authenticated user object
+        return this.userService.mapAuthenticatedUser(user);
+    }
 
     /**
      * Authenticate a user via email and password credentials.

@@ -1,6 +1,6 @@
 import { Exclude, Expose, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Role } from '../../../app/generated/prisma/client'; 
+import { Role } from '@prisma/client'; 
 
 @Exclude()
 export class UserMemberResponseDto {

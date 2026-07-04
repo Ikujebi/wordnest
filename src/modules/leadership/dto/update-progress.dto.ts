@@ -5,7 +5,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
-import { EnrollmentStatus } from '../../../../app/generated/prisma/client';
+import { EnrollmentStatus } from '@prisma/client';
 
 export class UpdateProgressDto {
   @IsOptional()

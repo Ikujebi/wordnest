@@ -1,4 +1,4 @@
-import { Role } from '../../../app/generated/prisma/client';
+import { Role } from '@prisma/client';
 
 export interface AuthenticatedUser {
   id: string;

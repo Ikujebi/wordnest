@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID, Length } from 'class-validator';
-import { WorkerTrainingStage } from '../../../../app/generated/prisma/client';
+import { WorkerTrainingStage } from '@prisma/client';
 
 export class UpdatePipelineStageDto {
   @IsNotEmpty()

@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, Length, Matches } from 'class-validator';
-import { Role } from '../../../app/generated/prisma/client'; // Adjusted to match your CreateUserDto path
+import { Role } from '@prisma/client'; // Adjusted to match your CreateUserDto path
 
 export class UpdateUserDto {
   @IsOptional()

@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import type { StringValue } from 'ms';
 
-import { Prisma } from '../../../app/generated/prisma/client'; // Adjust path if needed
+import { Prisma } from '@prisma/client'; // Adjust path if needed
 import { PrismaService } from '../../../prisma/prisma.service'; // Adjust path if needed
 import { CryptoService } from './crypto.service'; // Adjust path if needed
 
