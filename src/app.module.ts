@@ -11,6 +11,8 @@ import { AppService } from './app.service';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
+
 
 @Module({
   imports: [
@@ -27,6 +29,7 @@ import { AuthModule } from './auth/auth.module';
 
     PrismaModule,
     AuthModule,
+    CloudinaryModule,
   ],
 
   controllers: [AppController],

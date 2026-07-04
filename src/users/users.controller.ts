@@ -1,24 +1,184 @@
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Query,
+  UseInterceptors,
+  ClassSerializerInterceptor,
+  HttpCode,
+  HttpStatus,
+  ParseUUIDPipe,
+  UploadedFile,
+  ParseFilePipe,
+  MaxFileSizeValidator,
+  FileTypeValidator,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiOkResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiBody,
+} from '@nestjs/swagger';
+import { plainToInstance } from 'class-transformer';
+
+import { UsersService } from './users.service';
+import { UserResponseDto } from './dto/user-response.dto';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { UserPaginationQueryDto } from './dto/user-pagination-query.dto';
+import { USER_ERROR_MESSAGES } from './users.constants';
+
+@ApiTags('Users')
+@ApiBearerAuth()
 @Controller('users')
+@UseInterceptors(ClassSerializerInterceptor)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create a new system user and physical profile link',
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    type: UserResponseDto,
+    description: 'User successfully created.',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description: USER_ERROR_MESSAGES.EMAIL_ALREADY_EXISTS,
+  })
+  async create(
+    @Body() createUserDto: CreateUserDto,
+  ): Promise<UserResponseDto> {
+    const rawUser = await this.usersService.create(createUserDto);
+    return plainToInstance(UserResponseDto, rawUser);
+  }
+
   @Get()
-  findAll() {
-    return this.usersService.findAllUsers();
+  @ApiOperation({
+    summary: 'Retrieve a paginated list of active users',
+  })
+  @ApiOkResponse({
+    type: UserResponseDto,
+    isArray: true,
+  })
+  async findAll(
+    @Query() query: UserPaginationQueryDto,
+  ): Promise<UserResponseDto[]> {
+    const rawUsers = await this.usersService.findAll(query);
+    return plainToInstance(UserResponseDto, rawUsers);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findUserById(id);
+  @ApiOperation({
+    summary: 'Get detailed user account by ID',
+  })
+  @ApiOkResponse({
+    type: UserResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: USER_ERROR_MESSAGES.NOT_FOUND,
+  })
+  async findOne(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<UserResponseDto> {
+    const rawUser = await this.usersService.findOne(id);
+    return plainToInstance(UserResponseDto, rawUser);
   }
 
-  @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.usersService.createUser(dto);
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Update partial fields of a user profile',
+  })
+  @ApiOkResponse({
+    type: UserResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: USER_ERROR_MESSAGES.NOT_FOUND,
+  })
+  async update(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() updateUserDto: UpdateUserDto,
+  ): Promise<UserResponseDto> {
+    const rawUser = await this.usersService.update(id, updateUserDto);
+    return plainToInstance(UserResponseDto, rawUser);
   }
 
-  @Patch(':id/deactivate')
-  deactivate(@Param('id') id: string) {
-    return this.usersService.deactivateUser(id);
+  /**
+   * Upload / Replace Profile Picture
+   */
+  @Patch(':id/profile-picture')
+  @UseInterceptors(FileInterceptor('profilePicture'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload or replace a user profile picture',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        profilePicture: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+    },
+  })
+  @ApiOkResponse({
+    type: UserResponseDto,
+  })
+  async updateProfilePicture(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({
+            maxSize: 5 * 1024 * 1024,
+          }),
+          new FileTypeValidator({
+            fileType: /(jpg|jpeg|png|webp)$/i,
+          }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ): Promise<UserResponseDto> {
+    const rawUser = await this.usersService.updateProfilePicture(
+      id,
+      file,
+    );
+
+    return plainToInstance(UserResponseDto, rawUser);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Soft delete a user account',
+  })
+  @ApiResponse({
+    status: HttpStatus.NO_CONTENT,
+    description: 'User has been successfully deactivated.',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: USER_ERROR_MESSAGES.NOT_FOUND,
+  })
+  async remove(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<void> {
+    await this.usersService.softDelete(id);
   }
 }

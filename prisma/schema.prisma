@@ -58,6 +58,8 @@ model User {
 
   passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
+   profilePictureUrl       String?
+  profilePicturePublicId  String?
 
   @@index([role])
   @@index([isActive])
