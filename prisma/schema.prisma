@@ -408,6 +408,62 @@ model WorkerInTraining {
   @@index([departmentId])
   @@index([stage])
 }
+model Communication {
+  id          String @id @default(uuid())
+
+  title       String
+  subject     String?
+  content     String
+
+  type        CommunicationType
+  status      CommunicationStatus
+
+  scheduledAt DateTime?
+  sentAt      DateTime?
+
+  createdById String
+  createdBy   User @relation(fields:[createdById], references:[id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  recipients CommunicationRecipient[]
+  logs       CommunicationLog[]
+}
+model CommunicationRecipient {
+  id String @id @default(uuid())
+
+  communicationId String
+
+  memberId String?
+
+  email String?
+
+  phone String?
+
+  status RecipientStatus
+
+  sentAt DateTime?
+
+  communication Communication @relation(fields:[communicationId], references:[id])
+
+  member Member? @relation(fields:[memberId], references:[id])
+}
+model CommunicationLog {
+  id String @id @default(uuid())
+
+  communicationId String
+
+  channel CommunicationChannel
+
+  success Boolean
+
+  response String?
+
+  createdAt DateTime @default(now())
+
+  communication Communication @relation(fields:[communicationId], references:[id])
+}
 
 enum Gender {
   MALE
@@ -532,4 +588,23 @@ enum Role {
   SUPER_ADMIN
   ADMIN
   MEMBER
+}
+export enum CommunicationChannel {
+    EMAIL,
+    SMS,
+    PUSH,
+    WHATSAPP,
+    IN_APP,
+}
+export enum CommunicationType {
+    ANNOUNCEMENT,
+    NEWSLETTER,
+    DEVOTIONAL,
+    EVENT,
+    SERMON,
+    PRAYER_UPDATE,
+    THANK_YOU,
+    FOLLOW_UP,
+    EMERGENCY,
+    CUSTOM,
 }
