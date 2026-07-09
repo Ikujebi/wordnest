@@ -10,39 +10,34 @@ import {
   IsObject,
   IsBoolean,
 } from 'class-validator';
-
 import { Type } from 'class-transformer';
 
-
-export enum BroadcastType {
-  ANNOUNCEMENT = 'ANNOUNCEMENT',
-  NOTIFICATION = 'NOTIFICATION',
-  ALERT = 'ALERT',
-  REMINDER = 'REMINDER',
-}
-
+// 🔥 Keep your native Prisma Enums synced
+import { CommunicationType, CommunicationChannel } from '@prisma/client'; 
 
 /**
  * Nested channel configuration DTO
  *
  * Example:
  * [
- *   {
- *     channel: "EMAIL",
- *     enabled: true
- *   }
+ * {
+ * channel: "EMAIL",
+ * enabled: true
+ * },
+ * {
+ * channel: "SMS",
+ * enabled: false
+ * }
  * ]
  */
 export class BroadcastChannelDto {
-
-  @IsString({
-    message: 'Channel name must be a valid string.',
+  @IsEnum(CommunicationChannel, {
+    message: 'Channel name must be a valid infrastructure communication channel (e.g., EMAIL, SMS, PUSH).',
   })
   @IsNotEmpty({
     message: 'Channel name cannot be empty.',
   })
-  channel!: string;
-
+  channel!: CommunicationChannel;
 
   @IsOptional()
   @IsBoolean({
@@ -51,8 +46,6 @@ export class BroadcastChannelDto {
   enabled?: boolean;
 }
 
-
-
 /**
  * Update Broadcast DTO
  *
@@ -60,7 +53,6 @@ export class BroadcastChannelDto {
  * All fields are optional because this is an update operation.
  */
 export class UpdateBroadcastDto {
-
   @IsOptional()
   @IsString({
     message: 'The title must be a valid text string.',
@@ -69,8 +61,6 @@ export class UpdateBroadcastDto {
     message: 'The title cannot be empty if provided.',
   })
   title?: string;
-
-
 
   @IsOptional()
   @IsString({
@@ -81,8 +71,6 @@ export class UpdateBroadcastDto {
   })
   subject?: string;
 
-
-
   @IsOptional()
   @IsString({
     message: 'The content must be a valid text string.',
@@ -92,25 +80,20 @@ export class UpdateBroadcastDto {
   })
   content?: string;
 
-
-
   @IsOptional()
-  @IsEnum(BroadcastType, {
-    message:
-      'Type must be one of ANNOUNCEMENT, NOTIFICATION, ALERT, or REMINDER.',
+  @IsEnum(CommunicationType, {
+    message: 'Type must be a valid system communication type enum value.',
   })
-  type?: BroadcastType;
-
-
+  type?: CommunicationType; 
 
   /**
    * Simple channels array
    *
    * Example:
    * [
-   *   "EMAIL",
-   *   "SMS",
-   *   "PUSH"
+   * "EMAIL",
+   * "SMS",
+   * "PUSH"
    * ]
    */
   @IsOptional()
@@ -120,27 +103,21 @@ export class UpdateBroadcastDto {
   @ArrayUnique({
     message: 'Channels cannot contain duplicate values.',
   })
-  @IsString({
+  @IsEnum(CommunicationChannel, {
     each: true,
-    message: 'Each channel must be a valid string.',
+    message: 'Each channel must be a valid schema communication channel (e.g., EMAIL, SMS, PUSH).',
   })
-  @IsNotEmpty({
-    each: true,
-    message: 'Channel values cannot be empty.',
-  })
-  channels?: string[];
-
-
+  channels?: CommunicationChannel[];
 
   /**
    * Advanced channel configuration
    *
    * Example:
    * [
-   *   {
-   *     channel: "EMAIL",
-   *     enabled: true
-   *   }
+   * {
+   * channel: "EMAIL",
+   * enabled: true
+   * }
    * ]
    */
   @IsOptional()
@@ -153,8 +130,6 @@ export class UpdateBroadcastDto {
   @Type(() => BroadcastChannelDto)
   channelConfig?: BroadcastChannelDto[];
 
-
-
   /**
    * Schedule broadcast execution
    *
@@ -165,21 +140,18 @@ export class UpdateBroadcastDto {
   @IsDateString(
     {},
     {
-      message:
-        'scheduledAt must be a valid ISO 8601 date string.',
+      message: 'scheduledAt must be a valid ISO 8601 date string.',
     },
   )
   scheduledAt?: string | null;
-
-
 
   /**
    * Extra dynamic information
    *
    * Example:
    * {
-   *   campaign: "July Newsletter",
-   *   priority: "high"
+   * campaign: "July Newsletter",
+   * priority: "high"
    * }
    */
   @IsOptional()

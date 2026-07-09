@@ -7,7 +7,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { BroadcastService } from './broadcast.service';
 
-import { CommunicationStatus } from '../enums/communication-status.enum';
+import { CommunicationStatus } from '@prisma/client'; // 🔥 Import from prisma client directly if enum matches
 
 @Injectable()
 export class SchedulerService {
@@ -17,6 +17,18 @@ export class SchedulerService {
     private readonly prisma: PrismaService,
     private readonly broadcastService: BroadcastService,
   ) {}
+
+  // 🔥 ADDED: No-op placeholder to prevent contract breakdown inside CommunicationsService
+  async scheduleJob(id: string, scheduledAt: Date): Promise<void> {
+    this.logger.debug(`Job registration requested for ${id} at ${scheduledAt.toISOString()}. Managed via database cron polling.`);
+    return;
+  }
+
+  // 🔥 ADDED: No-op placeholder to prevent contract breakdown inside CommunicationsService
+  async cancelJob(id: string): Promise<void> {
+    this.logger.debug(`Job cancellation requested for ${id}. Handled implicitly by state changes in database cron polling.`);
+    return;
+  }
 
   /**
    * Runs every minute.
@@ -33,6 +45,7 @@ export class SchedulerService {
           scheduledAt: {
             lte: new Date(),
           },
+          deletedAt: null,
         },
       });
 
@@ -52,9 +65,10 @@ export class SchedulerService {
           `Communication ${communication.id} sent successfully.`,
         );
       } catch (error) {
+        const err = error as Error;
         this.logger.error(
           `Failed to send communication ${communication.id}`,
-          error.stack,
+          err.stack,
         );
 
         await this.prisma.communication.update({
@@ -80,6 +94,7 @@ export class SchedulerService {
       await this.prisma.communication.findMany({
         where: {
           status: CommunicationStatus.FAILED,
+          deletedAt: null,
         },
       });
 
@@ -102,13 +117,11 @@ export class SchedulerService {
 
   /**
    * Archive old communications.
-   *
    * Runs every day at 2AM.
    */
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
   async archiveOldCommunications(): Promise<void> {
     const cutoff = new Date();
-
     cutoff.setMonth(cutoff.getMonth() - 6);
 
     const result =
@@ -126,19 +139,17 @@ export class SchedulerService {
       });
 
     this.logger.log(
-      `Archived ${result.count} communication(s).`,
+      `Archived ${result.count} old sent communication(s).`,
     );
   }
 
   /**
    * Delete delivery logs older than one year.
-   *
-   * Runs every Sunday at 3AM.
+   * Runs every week.
    */
   @Cron(CronExpression.EVERY_WEEK)
   async cleanupLogs(): Promise<void> {
     const cutoff = new Date();
-
     cutoff.setFullYear(cutoff.getFullYear() - 1);
 
     const result =

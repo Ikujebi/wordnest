@@ -6,7 +6,7 @@ import { CommunicationsService } from './communications.service';
 
 import { EmailService } from './channels/email.service';
 import { SmsService } from './channels/sms.service';
-import { PushService } from './channels/push.service';
+import { WebPushService } from './channels/push.service';
 import { SchedulerService } from './channels/scheduler.service';
 
 @Module({
@@ -16,14 +16,14 @@ import { SchedulerService } from './channels/scheduler.service';
     CommunicationsService,
     EmailService,
     SmsService,
-    PushService,
+    WebPushService,
     SchedulerService,
   ],
   exports: [
     CommunicationsService,
     EmailService,
     SmsService,
-    PushService,
+    WebPushService,
   ],
 })
 export class CommunicationsModule {}

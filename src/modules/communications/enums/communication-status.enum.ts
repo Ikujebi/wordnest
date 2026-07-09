@@ -1,0 +1,8 @@
+export enum CommunicationStatus {
+  DRAFT = 'DRAFT',
+  SCHEDULED = 'SCHEDULED',
+  PROCESSING = 'PROCESSING',
+  SENT = 'SENT',
+  FAILED = 'FAILED',
+  CANCELLED = 'CANCELLED',
+}

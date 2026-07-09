@@ -10,20 +10,13 @@ import {
 
 import { Type } from 'class-transformer';
 
-import {
-  CommunicationType,
-} from '../enums/communication-type.enum';
-
-import {
-  CommunicationChannel,
-} from '../enums/communication-channel.enum';
-
+// 🔥 Unified enums directly from the auto-generated Prisma client
+import { CommunicationType, CommunicationChannel } from '@prisma/client'; 
 
 class RecipientFilterDto {
-
   @IsString()
   @IsNotEmpty()
-  type:
+  type!:
     | 'ALL_MEMBERS'
     | 'WORKERS'
     | 'DEPARTMENT'
@@ -31,87 +24,64 @@ class RecipientFilterDto {
     | 'INDIVIDUAL'
     | 'CUSTOM';
 
-
   @IsOptional()
   @IsString()
   departmentId?: string;
-
 
   @IsOptional()
   @IsString()
   ministryId?: string;
 
-
   @IsOptional()
   @IsArray()
   @IsString({
-    each:true,
+    each: true,
   })
   memberIds?: string[];
 
-
   @IsOptional()
   @IsArray()
   @IsString({
-    each:true,
+    each: true,
   })
   emails?: string[];
-
 }
 
-
 export class CreateBroadcastDto {
-
-
   @IsString()
   @IsNotEmpty()
-  title:string;
-
-
+  title!: string;
 
   @IsOptional()
   @IsString()
-  subject?:string;
-
-
+  subject?: string;
 
   @IsString()
   @IsNotEmpty()
-  content:string;
-
-
+  content!: string;
 
   @IsEnum(CommunicationType)
-  type:CommunicationType;
-
-
+  type!: CommunicationType;
 
   @IsArray()
   @IsEnum(
     CommunicationChannel,
     {
-      each:true,
+      each: true,
     },
   )
-  channels:CommunicationChannel[];
-
-
-
+  channels!: CommunicationChannel[];
 
   @IsOptional()
   @IsDateString()
-  scheduledAt?:Date;
-
-
+  scheduledAt?: Date;
 
   /**
    * User creating the communication
    */
   @IsString()
   @IsNotEmpty()
-  createdById:string;
-
-
+  createdById!: string;
 
   /**
    * Recipient targeting rules
@@ -121,6 +91,5 @@ export class CreateBroadcastDto {
   @Type(
     () => RecipientFilterDto,
   )
-  recipients?:RecipientFilterDto;
-
+  recipients?: RecipientFilterDto;
 }

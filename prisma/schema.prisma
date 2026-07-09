@@ -49,6 +49,11 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
 
+
+  // 🔥 ADD THIS LINE INSIDE THE USER MODEL
+  communications     Communication[]
+
+
   @@index([role])
   @@index([isActive])
 }
@@ -122,7 +127,7 @@ model Member {
   worker             Worker?
   workerTrainings    WorkerInTraining[]     @relation("MemberTraining")
   mentees            WorkerInTraining[]     @relation("Mentorship")
-
+communicationRecipients CommunicationRecipient[]
   @@index([lastName])
 }
 
@@ -421,6 +426,12 @@ model Communication {
   scheduledAt DateTime?
   sentAt      DateTime?
 
+  // 🔥 ADD THESE TWO LINES HERE:
+  deletedAt   DateTime? @db.Timestamptz(6)
+  archivedAt  DateTime? @db.Timestamptz(6)
+
+  metadata    Json?    @default("{}")
+
   createdById String
   createdBy   User @relation(fields:[createdById], references:[id])
 
@@ -589,22 +600,38 @@ enum Role {
   ADMIN
   MEMBER
 }
-export enum CommunicationChannel {
-    EMAIL,
-    SMS,
-    PUSH,
-    WHATSAPP,
-    IN_APP,
+enum CommunicationChannel {
+  EMAIL
+  SMS
+  PUSH
+  WHATSAPP
+  IN_APP
 }
-export enum CommunicationType {
-    ANNOUNCEMENT,
-    NEWSLETTER,
-    DEVOTIONAL,
-    EVENT,
-    SERMON,
-    PRAYER_UPDATE,
-    THANK_YOU,
-    FOLLOW_UP,
-    EMERGENCY,
-    CUSTOM,
+
+enum CommunicationType {
+  ANNOUNCEMENT
+  NEWSLETTER
+  DEVOTIONAL
+  EVENT
+  SERMON
+  PRAYER_UPDATE
+  THANK_YOU
+  FOLLOW_UP
+  EMERGENCY
+  CUSTOM
+}
+enum CommunicationStatus {
+  DRAFT
+  SCHEDULED
+  PROCESSING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum RecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
 }

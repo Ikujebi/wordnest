@@ -1,9 +1,8 @@
 import { IsOptional, IsString, IsInt, Min, Max, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CommunicationStatus } from '../enums/communication-status.enum';
+// 🔥 Import all communication enums straight from the auto-generated Prisma Client
+import { CommunicationStatus, CommunicationType } from '@prisma/client'; 
 
-// If you have a CommunicationType enum, import it here. 
-// Otherwise, we can validate it as a standard string.
 export class CommunicationQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -25,8 +24,10 @@ export class CommunicationQueryDto {
   status?: CommunicationStatus;
 
   @IsOptional()
-  @IsString({ message: 'Type filter must be a valid string.' })
-  type?: string;
+  @IsEnum(CommunicationType, {
+    message: `Type must be a valid enum value: ${Object.values(CommunicationType).join(', ')}`,
+  })
+  type?: CommunicationType; // 🔥 Changed from string to explicit CommunicationType enum
 
   @IsOptional()
   @IsString({ message: 'Search term must be a valid string.' })
