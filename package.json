@@ -100,6 +100,7 @@
     "@prisma/engines@7.8.0": true,
     "unrs-resolver@1.12.2": true,
     "bcrypt@6.0.0": true,
-    "argon2@0.44.0": true
+    "argon2@0.44.0": true,
+    "@scarf/scarf@1.4.0": true
   }
 }
