@@ -8,11 +8,16 @@ import { RedisQueueModule } from '../../config/redis.config';
 import { CommunicationsController } from './communications.controller';
 import { CommunicationsService } from './communications.service';
 
+// 🛠️ UPDATE THESE FOUR IMPORTS TO POINT TO THE 'services' SUBFOLDER:
+import { BroadcastService } from './services/broadcast.service'; 
+import { RecipientService } from './services/recipient.service'; 
+import { StatisticsService } from './services/statistics.service'; 
+import { SchedulerService } from './services/scheduler.service'; 
+
 import { EmailService } from './channels/email.service';
 import { SmsService } from './channels/sms.service';
 import { WhatsappService } from './channels/whatsapp.service';
 import { WebPushService } from './channels/push.service';
-import { SchedulerService } from './channels/scheduler.service';
 
 import { SmsQueueService } from './channels/sms/sms.queue';
 import { SmsProcessor } from './channels/sms/sms.processor';
@@ -22,42 +27,32 @@ import { SmsProcessor } from './channels/sms/sms.processor';
     PrismaModule,
     HttpModule,
     RedisQueueModule,
-
     BullModule.registerQueue(
-  {
-    name: 'sms',
-  },
-  {
-    name: 'email',
-  },
-  {
-    name: 'whatsapp',
-  },
-  {
-    name: 'push',
-  },
-),
+      { name: 'sms' },
+      { name: 'email' },
+      { name: 'whatsapp' },
+      { name: 'push' },
+    ),
   ],
-
   controllers: [CommunicationsController],
-
   providers: [
     CommunicationsService,
+    
+    // These now reference the exact classes the service expects
+    BroadcastService,
+    RecipientService,
+    StatisticsService,
+    SchedulerService,
 
     EmailService,
     SmsService,
     WhatsappService,
     WebPushService,
-
-    SchedulerService,
-
     SmsQueueService,
     SmsProcessor,
   ],
-
   exports: [
     CommunicationsService,
-
     EmailService,
     SmsService,
     WhatsappService,

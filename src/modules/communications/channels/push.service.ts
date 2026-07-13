@@ -30,16 +30,34 @@ export class WebPushService implements OnModuleInit {
   onModuleInit() {
     const publicKey = process.env.VAPID_PUBLIC_KEY;
     const privateKey = process.env.VAPID_PRIVATE_KEY;
-    const contactEmail = process.env.EMAIL_FROM || 'mailto:admin@wordtabernacle.org.ng';
+    
+    // 1. Grab the raw value from environment fallbacks
+    const rawContact = process.env.VAPID_SUBJECT || process.env.EMAIL_FROM || 'mailto:admin@wordtabernacle.org.ng';
+    let contactEmail = rawContact;
+
+    // 2. Extract clean email if it's wrapped in a "Friendly Name <email@address.com>" format
+    const emailMatch = rawContact.match(/<([^>]+)>/);
+    if (emailMatch && emailMatch[1]) {
+      contactEmail = emailMatch[1];
+    }
+
+    // 3. Ensure it has a valid URL prefix (mailto: or http/https) required by web-push helper validation
+    if (!contactEmail.startsWith('mailto:') && !contactEmail.startsWith('http://') && !contactEmail.startsWith('https://')) {
+      contactEmail = `mailto:${contactEmail}`;
+    }
 
     if (!publicKey || !privateKey) {
       this.logger.warn('VAPID keys missing. Web Push notification service running in simulation mode.');
       return;
     }
 
-    // Set details once globally for the web-push module
-    webpush.setVapidDetails(contactEmail, publicKey, privateKey);
-    this.logger.log('Web Push VAPID configurations loaded successfully.');
+    try {
+      // Set details once globally for the web-push module
+      webpush.setVapidDetails(contactEmail, publicKey, privateKey);
+      this.logger.log(`Web Push VAPID configurations loaded successfully with subject: ${contactEmail}`);
+    } catch (error: any) {
+      this.logger.error(`Failed to initialize Web Push VAPID: ${error.message}`);
+    }
   }
 
   /**
