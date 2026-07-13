@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
- 
 }
 
 datasource db {
@@ -49,10 +48,8 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
 
-
   // 🔥 ADD THIS LINE INSIDE THE USER MODEL
-  communications     Communication[]
-
+  communications Communication[]
 
   @@index([role])
   @@index([isActive])
@@ -70,11 +67,11 @@ model AuditLog {
 }
 
 model EmailVerificationToken {
-  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id        String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   userId    String
-  token     String   @unique
+  token     String    @unique
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   usedAt    DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -84,11 +81,11 @@ model EmailVerificationToken {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id        String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   userId    String
-  token     String   @unique
+  token     String    @unique
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   usedAt    DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -98,36 +95,38 @@ model PasswordResetToken {
 }
 
 model Member {
-  id                 String                 @id @default(dbgenerated("(gen_random_uuid())::text"))
-  firstName          String
-  lastName           String
-  otherName          String?
-  email              String?
-  phoneNumber        String?
-  gender             Gender?
-  dateOfBirth        DateTime?              @db.Timestamptz(6)
-  maritalStatus      MaritalStatus?
-  address            String?
-  occupation         String?
-  baptismalStatus    String?
-  isWorker           Boolean                @default(false)
-  userId             String?                @unique
-  deletedAt          DateTime?              @db.Timestamptz(6)
-  createdAt          DateTime               @default(now()) @db.Timestamptz(6)
-  updatedAt          DateTime               @default(now()) @updatedAt @db.Timestamptz(6)
-  createdById        String?
-  updatedById        String?
-  attendances        Attendance[]
-  ledDepartments     Department[]
-  departments        DepartmentMember[]
-  givings            Giving[]
-  facilitatedClasses LeadershipClass[]
-  enrollments        LeadershipEnrollment[]
-  user               User?                  @relation(fields: [userId], references: [id])
-  worker             Worker?
-  workerTrainings    WorkerInTraining[]     @relation("MemberTraining")
-  mentees            WorkerInTraining[]     @relation("Mentorship")
-communicationRecipients CommunicationRecipient[]
+  id                      String                   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  firstName               String
+  lastName                String
+  otherName               String?
+  email                   String?
+  phoneNumber             String?
+  gender                  Gender?
+  dateOfBirth             DateTime?                @db.Timestamptz(6)
+  maritalStatus           MaritalStatus?
+  address                 String?
+  occupation              String?
+  baptismalStatus         String?
+  isWorker                Boolean                  @default(false)
+  userId                  String?                  @unique
+  deletedAt               DateTime?                @db.Timestamptz(6)
+  createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
+  updatedAt               DateTime                 @default(now()) @updatedAt @db.Timestamptz(6)
+  createdById             String?
+  updatedById             String?
+  attendances             Attendance[]
+  ledDepartments          Department[]
+  departments             DepartmentMember[]
+  givings                 Giving[]
+  facilitatedClasses      LeadershipClass[]
+  enrollments             LeadershipEnrollment[]
+  user                    User?                    @relation(fields: [userId], references: [id])
+  worker                  Worker?
+  workerTrainings         WorkerInTraining[]       @relation("MemberTraining")
+  mentees                 WorkerInTraining[]       @relation("Mentorship")
+  communicationRecipients CommunicationRecipient[]
+  subscribers             Subscriber[]
+
   @@index([lastName])
 }
 
@@ -413,34 +412,36 @@ model WorkerInTraining {
   @@index([departmentId])
   @@index([stage])
 }
+
 model Communication {
-  id          String @id @default(uuid())
+  id String @id @default(uuid())
 
-  title       String
-  subject     String?
-  content     String
+  title   String
+  subject String?
+  content String
 
-  type        CommunicationType
-  status      CommunicationStatus
+  type   CommunicationType
+  status CommunicationStatus
 
   scheduledAt DateTime?
   sentAt      DateTime?
 
   // 🔥 ADD THESE TWO LINES HERE:
-  deletedAt   DateTime? @db.Timestamptz(6)
-  archivedAt  DateTime? @db.Timestamptz(6)
+  deletedAt  DateTime? @db.Timestamptz(6)
+  archivedAt DateTime? @db.Timestamptz(6)
 
-  metadata    Json?    @default("{}")
+  metadata Json? @default("{}")
 
   createdById String
-  createdBy   User @relation(fields:[createdById], references:[id])
-  channels CommunicationChannel[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdBy   User                   @relation(fields: [createdById], references: [id])
+  channels    CommunicationChannel[]
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
 
   recipients CommunicationRecipient[]
   logs       CommunicationLog[]
 }
+
 model CommunicationRecipient {
   id String @id @default(uuid())
 
@@ -448,18 +449,27 @@ model CommunicationRecipient {
 
   memberId String?
 
+  subscriberId String?
+
   email String?
 
   phone String?
 
-  status RecipientStatus
+  status RecipientStatus @default(PENDING)
 
   sentAt DateTime?
 
-  communication Communication @relation(fields:[communicationId], references:[id])
+  communication Communication @relation(fields: [communicationId], references: [id])
 
-  member Member? @relation(fields:[memberId], references:[id])
+  member Member? @relation(fields: [memberId], references: [id])
+
+  subscriber Subscriber? @relation(fields: [subscriberId], references: [id])
+
+  @@index([communicationId])
+  @@index([memberId])
+  @@index([subscriberId])
 }
+
 model CommunicationLog {
   id String @id @default(uuid())
 
@@ -473,7 +483,41 @@ model CommunicationLog {
 
   createdAt DateTime @default(now())
 
-  communication Communication @relation(fields:[communicationId], references:[id])
+  communication Communication @relation(fields: [communicationId], references: [id])
+}
+
+model Subscriber {
+  id String @id @default(uuid())
+
+  firstName String?
+  lastName  String?
+
+  email       String? @unique
+  phoneNumber String?
+
+  // Communication preferences
+  receiveEmail    Boolean @default(true)
+  receiveSms      Boolean @default(false)
+  receiveWhatsapp Boolean @default(false)
+
+  isActive                Boolean                  @default(true)
+  communicationRecipients CommunicationRecipient[]
+  // Used for public unsubscribe links
+  unsubscribeToken        String                   @unique @default(uuid())
+
+  // Optional link if subscriber later becomes a church member
+  memberId String?
+  member   Member? @relation(fields: [memberId], references: [id])
+
+  subscribedAt DateTime @default(now()) @db.Timestamptz(6)
+
+  unsubscribedAt DateTime?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@index([phoneNumber])
+  @@index([isActive])
 }
 
 enum Gender {
@@ -600,6 +644,7 @@ enum Role {
   ADMIN
   MEMBER
 }
+
 enum CommunicationChannel {
   EMAIL
   SMS
@@ -620,6 +665,7 @@ enum CommunicationType {
   EMERGENCY
   CUSTOM
 }
+
 enum CommunicationStatus {
   DRAFT
   SCHEDULED
