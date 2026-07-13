@@ -434,7 +434,7 @@ model Communication {
 
   createdById String
   createdBy   User @relation(fields:[createdById], references:[id])
-
+  channels CommunicationChannel[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

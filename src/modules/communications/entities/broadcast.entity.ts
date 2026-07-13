@@ -1,37 +1,50 @@
-import { Exclude, Type } from 'class-transformer';
-import { CommunicationStatus } from '../enums/communication-status.enum';
+import { Type, Exclude } from 'class-transformer';
+import { 
+  CommunicationStatus, 
+  CommunicationChannel, 
+  CommunicationType,
+  RecipientStatus
+} from '@prisma/client';
 
-// Replace these inline interfaces with your actual imported entities if available
 export class CommunicationRecipientEntity {
   id: string;
   communicationId: string;
-  memberId?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  createdAt: Date;
+  memberId: string | null;
+  email: string | null;
+  phone: string | null;
+  status: RecipientStatus; // Changed to match your prisma enum
+
+  @Type(() => Date)
+  sentAt: Date | null;    // Added to match schema.prisma
 }
 
 export class CommunicationLogEntity {
   id: string;
   communicationId: string;
-  channel: string;
-  status: string;
-  error?: string | null;
+  channel: CommunicationChannel; // Strictly typed to your prisma enum
+  success: boolean;              // Changed from status/error to match your schema.prisma exactly
+  response: string | null;       // Changed to match your schema.prisma exactly
+
+  @Type(() => Date)
   createdAt: Date;
 }
 
 export class BroadcastEntity {
   id: string;
   title: string;
-  subject: string;
+  subject: string | null; // Can be null according to your prisma schema
   content: string;
-  type: string;
+  type: CommunicationType; // Strictly typed to your prisma enum
   status: CommunicationStatus;
-  channels: string[];
+  channels: CommunicationChannel[]; // Strictly typed array matching your schema
   createdById: string;
+  metadata: any;
 
   @Type(() => Date)
   scheduledAt: Date | null;
+
+  @Type(() => Date)
+  sentAt: Date | null; // Added to match schema.prisma
 
   @Type(() => Date)
   createdAt: Date;
