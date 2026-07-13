@@ -71,7 +71,7 @@ export class CloudinaryService {
         },
       );
 
-      // Create stream chunk pipelining inside execution block cleanly
+      // FIXED: Stream configuration is now placed inside the promise body context loop 
       const readable = new Readable();
       readable.push(file.buffer);
       readable.push(null);
