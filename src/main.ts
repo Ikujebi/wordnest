@@ -1,3 +1,4 @@
+// main.ts (NestJS Backend)
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
@@ -10,9 +11,28 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
+  // Dynamic origin verification for production and local dev
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://wordtabernacle.org.ng',
+    'https://www.wordtabernacle.org.ng',
+  ];
+
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://localhost:3001'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, postman, curl)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        callback(new Error('Blocked by CORS Policy'));
+      }
+    },
     credentials: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+    allowedHeaders: 'Content-Type, Accept, Authorization',
   });
 
   app.setGlobalPrefix('api');
