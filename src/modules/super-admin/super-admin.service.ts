@@ -11,6 +11,10 @@ export class SuperAdminService {
   // ==========================================
 
   async getDashboardStats() {
+    // Generate an absolute UTC start date for the current calendar month
+    const now = new Date();
+    const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+
     const [totalMembers, activeWorkers, monthlyGivingSum] = await Promise.all([
       this.prisma.member.count({
         where: { deletedAt: null }
@@ -29,13 +33,14 @@ export class SuperAdminService {
         },
         where: {
           createdAt: {
-            gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+            gte: startOfCurrentMonth,
           },
           deletedAt: null 
         },
       }),
     ]);
 
+    // Securely cast the Prisma.Decimal object into a native standard JavaScript number
     const monthlyGiving = monthlyGivingSum?._sum?.amount 
       ? Number(monthlyGivingSum._sum.amount) 
       : 0;
@@ -73,10 +78,6 @@ export class SuperAdminService {
   //         INDIVIDUAL TARGETING METHODS
   // ==========================================
 
-  /**
-   * Target a single specific individual (Super Admin, Admin, or Member) by their User ID.
-   * Pulls physical demographics seamlessly if they possess a connected Member profile.
-   */
   async targetIndividualUser(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -112,9 +113,6 @@ export class SuperAdminService {
     return user;
   }
 
-  /**
-   * Filter and list all accounts currently matching a targeted system role.
-   */
   async getIndividualsByRole(targetRole: Role) {
     return this.prisma.user.findMany({
       where: {
@@ -133,9 +131,6 @@ export class SuperAdminService {
     });
   }
 
-  /**
-   * Perform state modifications directly on a targeted user account.
-   */
   async updateIndividualStatus(userId: string, data: { role?: Role; isActive?: boolean }) {
     const userExists = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!userExists || userExists.deletedAt) {
