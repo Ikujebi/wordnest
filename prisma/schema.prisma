@@ -520,6 +520,20 @@ model Subscriber {
   @@index([isActive])
 }
 
+model Invitation {
+  id          String       @id @default(uuid())
+  email       String       @unique
+  role        InviteRole   @default(MEMBER)
+  token       String       @unique
+  status      InviteStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  acceptedAt  DateTime?
+
+  @@index([token])
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -680,4 +694,14 @@ enum RecipientStatus {
   SENT
   FAILED
   READ
+}
+enum InviteRole {
+  MEMBER
+  ADMIN
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
 }

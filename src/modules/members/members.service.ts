@@ -10,9 +10,6 @@ export class MembersService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Ties a physical member profile to an authenticated system user.
-   */
   async createMemberProfile(userId: string, dto: CreateMemberDto): Promise<Member> {
     try {
       return await this.prisma.member.create({
@@ -23,19 +20,14 @@ export class MembersService {
         },
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2002') {
-          throw new ConflictException('This user account is already linked to a member profile.');
-        }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('This user account is already linked to a member profile.');
       }
       this.logger.error(`Failed to create member profile for user ID: ${userId}`, error instanceof Error ? error.stack : String(error));
       throw new InternalServerErrorException('An error occurred while creating the member profile.');
     }
   }
 
-  /**
-   * Retrieves a member record along with its core system account references.
-   */
   async findByUserId(userId: string): Promise<Member> {
     const member = await this.prisma.member.findUnique({
       where: { userId },
@@ -49,9 +41,6 @@ export class MembersService {
     return member;
   }
 
-  /**
-   * Updates partial member fields atomically.
-   */
   async updateMemberProfile(userId: string, dto: UpdateMemberDto): Promise<Member> {
     const data: Prisma.MemberUpdateInput = {
       ...dto,
@@ -69,6 +58,36 @@ export class MembersService {
       }
       this.logger.error(`Failed to update member profile for user ID: ${userId}`, error instanceof Error ? error.stack : String(error));
       throw new InternalServerErrorException('An error occurred updating your profile information.');
+    }
+  }
+
+  /**
+   * 🔥 PRODUCTION ADDITION: Find a specific member by their primary Member ID.
+   */
+  async findById(id: string): Promise<Member> {
+    const member = await this.prisma.member.findUnique({
+      where: { id, deletedAt: null },
+    });
+    if (!member) {
+      throw new NotFoundException(`Member with ID ${id} not found or has been soft-deleted.`);
+    }
+    return member;
+  }
+
+  /**
+   * 🔥 PRODUCTION ADDITION: Validate if an array of Member IDs exist and are active.
+   * Useful to run before firing off communications.
+   */
+  async validateManyMembers(memberIds: string[]): Promise<void> {
+    const count = await this.prisma.member.count({
+      where: {
+        id: { in: memberIds },
+        deletedAt: null,
+      },
+    });
+
+    if (count !== memberIds.length) {
+      throw new NotFoundException('One or more targeted members could not be found or are inactive.');
     }
   }
 }
