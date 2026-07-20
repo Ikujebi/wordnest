@@ -1,7 +1,7 @@
 // invites.service.ts
 import { Injectable, ConflictException, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { EmailService } from '../communications/channels/email.service';
+import { EmailService } from '../../email/email.service';
 import { SendInviteDto } from './dto/send-invite.dto';
 import { InviteStatus, InviteRole } from '@prisma/client';
 import * as crypto from 'crypto';
