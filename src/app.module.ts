@@ -22,6 +22,7 @@ import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
+import {NotificationsModule,} from './modules/notifications/notification.module';
 
 @Module({
   imports: [
@@ -43,7 +44,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     CommunicationsModule,
     SearchModule, 
     PrayerRequestsModule,
-    
+    NotificationsModule,
     // 🔥 2. REGISTER THEM HERE IN THE IMPORTS ARRAY
     SuperAdminModule,
     AdminModule,

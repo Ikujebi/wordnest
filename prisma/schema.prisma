@@ -295,10 +295,16 @@ model ContactMessage {
   subject      String
   message      String
   isResolved   Boolean   @default(false)
+  isRead       Boolean   @default(false)
   assignedToId String?
   deletedAt    DateTime? @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @db.Timestamptz(6)
   assignedTo   User?     @relation(fields: [assignedToId], references: [id])
+  @@index([createdAt])
+  @@index([isResolved])
+  @@index([isRead])
+  @@index([assignedToId])
+  @@index([deletedAt])
 }
 
 model Ministry {
