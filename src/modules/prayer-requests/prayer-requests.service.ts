@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 
@@ -13,7 +14,7 @@ import { PrayerRequestNoteDto } from './dto/prayer-request-note.dto';
 
 import { PrayerCommunicationService } from './prayer-communication.service';
 
-import { PrayerRequestStatus } from '@prisma/client';
+import { Role, PrayerRequestStatus } from '@prisma/client';
 
 @Injectable()
 export class PrayerRequestsService {
@@ -23,6 +24,60 @@ export class PrayerRequestsService {
     private readonly prisma: PrismaService,
     private readonly prayerCommunicationService: PrayerCommunicationService,
   ) {}
+
+  /**
+   * Get all eligible users who can be assigned to a prayer request:
+   * 1. SUPER_ADMINs
+   * 2. ADMINs
+   * 3. Workers linked to the Prayer Department
+   */
+  async getEligibleAssignees() {
+    return this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        deletedAt: null,
+        OR: [
+          { role: Role.SUPER_ADMIN },
+          { role: Role.ADMIN },
+          {
+            member: {
+              worker: {
+                isActive: true,
+                deletedAt: null,
+                department: {
+                  slug: {
+                    in: ['prayer', 'intercessory-prayer', 'prayer-department'],
+                    mode: 'insensitive',
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        member: {
+          select: {
+            worker: {
+              select: {
+                position: true,
+                department: {
+                  select: { name: true },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        fullName: 'asc',
+      },
+    });
+  }
 
   /**
    * Create prayer request from public website
@@ -109,13 +164,43 @@ export class PrayerRequestsService {
   }
 
   /**
-   * Assign prayer request to worker
-   */
-  /**
-   * Assign prayer request to worker
+   * Assign prayer request with strict role & department validation
    */
   async assignPrayer(id: string, dto: AssignPrayerRequestDto) {
     const prayer = await this.findOne(id);
+
+    // Validate that the assigned target is a SUPER_ADMIN, ADMIN, or Prayer Dept Worker
+    const assignee = await this.prisma.user.findFirst({
+      where: {
+        id: dto.assignedToId,
+        isActive: true,
+        deletedAt: null,
+        OR: [
+          { role: Role.SUPER_ADMIN },
+          { role: Role.ADMIN },
+          {
+            member: {
+              worker: {
+                isActive: true,
+                deletedAt: null,
+                department: {
+                  slug: {
+                    in: ['prayer', 'intercessory-prayer', 'prayer-department'],
+                    mode: 'insensitive',
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    if (!assignee) {
+      throw new BadRequestException(
+        'Selected user is not authorized to receive prayer assignments. User must be a Super Admin, Admin, or an active worker in the Prayer Department.',
+      );
+    }
 
     const updated = await this.prisma.prayerRequest.update({
       where: {
@@ -125,12 +210,15 @@ export class PrayerRequestsService {
         assignedToId: dto.assignedToId,
         status: PrayerRequestStatus.ASSIGNED,
       },
+      include: {
+        assignedTo: true,
+      },
     });
 
     if (prayer.email) {
       await this.prayerCommunicationService.sendAssignedEmail(
         updated,
-        dto.note ?? '', // 👈 Fallback to empty string when note is undefined
+        dto.note ?? '',
       );
     }
 
@@ -159,13 +247,13 @@ export class PrayerRequestsService {
     return updated;
   }
 
- /**
+  /**
    * Add note from prayer team
    */
   async addNote(
     id: string,
     dto: PrayerRequestNoteDto,
-    authorId?: string, // 👈 Passed from controller via request context (e.g. req.user.id)
+    authorId?: string,
     senderName?: string,
   ) {
     const prayer = await this.findOne(id);
@@ -193,6 +281,7 @@ export class PrayerRequestsService {
 
     return note;
   }
+
   /**
    * Delete/archive prayer
    */
