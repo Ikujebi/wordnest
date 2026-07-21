@@ -17,7 +17,7 @@ import { SearchModule } from './modules/search/search.module';
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { MemberModule } from './modules/member/member.module';
-
+import { PrayerRequestsModule } from './modules/prayer-requests/prayer-requests.module';
 import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -42,6 +42,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
     CommonModule,
     CommunicationsModule,
     SearchModule, 
+    PrayerRequestsModule,
     
     // 🔥 2. REGISTER THEM HERE IN THE IMPORTS ARRAY
     SuperAdminModule,

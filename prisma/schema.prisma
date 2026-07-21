@@ -50,6 +50,10 @@ model User {
 
   // 🔥 ADD THIS LINE INSIDE THE USER MODEL
   communications Communication[]
+  prayerRequestsSubmitted PrayerRequest[]     @relation("PrayerRequester")
+  assignedPrayerRequests  PrayerRequest[]     @relation("PrayerAssignedTo")
+  answeredPrayerRequests  PrayerRequest[]     @relation("PrayerAnsweredBy")
+  prayerRequestNotes      PrayerRequestNote[]
 
   @@index([role])
   @@index([isActive])
@@ -126,7 +130,7 @@ model Member {
   mentees                 WorkerInTraining[]       @relation("Mentorship")
   communicationRecipients CommunicationRecipient[]
   subscribers             Subscriber[]
-
+  prayerRequests PrayerRequest[]
   @@index([lastName])
 }
 
@@ -422,7 +426,8 @@ model Communication {
 
   type   CommunicationType
   status CommunicationStatus
-
+  prayerRequestId String?
+  prayerRequest   PrayerRequest? @relation(fields: [prayerRequestId], references: [id])
   scheduledAt DateTime?
   sentAt      DateTime?
 
@@ -533,7 +538,69 @@ model Invitation {
 
   @@index([token])
 }
+model PrayerRequest {
+  id                     String                  @id @default(uuid())
+  requesterId            String?                 // if logged-in member/user
+  memberId               String?                 // if linked to church member
+  firstName              String?
+  lastName               String?
+  email                  String?
+  phoneNumber            String?
+  subject                String
+  message                String
+  category               PrayerRequestCategory   @default(OTHER)
+  visibility             PrayerRequestVisibility @default(PRIVATE)
+  priority               PrayerRequestPriority   @default(NORMAL)
+  isConfidential         Boolean                 @default(true)
 
+  // DTO support fields
+  internalSummary        String?
+  testimony              String?
+  allowFollowUp          Boolean                 @default(true)
+  preferredContactMethod String?
+  followUpSent           Boolean                 @default(false)
+
+  status                 PrayerRequestStatus     @default(PENDING)
+
+  assignedToId           String?
+  answeredById           String?
+  answeredAt             DateTime?
+  acknowledgedAt         DateTime?
+  closedAt               DateTime?
+
+  deletedAt              DateTime?               @db.Timestamptz(6)
+  createdAt              DateTime                @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
+
+  requester              User?                   @relation("PrayerRequester", fields: [requesterId], references: [id])
+  member                 Member?                 @relation(fields: [memberId], references: [id])
+  assignedTo             User?                   @relation("PrayerAssignedTo", fields: [assignedToId], references: [id])
+  answeredBy             User?                   @relation("PrayerAnsweredBy", fields: [answeredById], references: [id])
+
+  notes                  PrayerRequestNote[]
+  communications         Communication[]
+
+  @@index([status])
+  @@index([category])
+  @@index([priority])
+  @@index([memberId])
+  @@index([requesterId])
+}
+model PrayerRequestNote {
+  id            String        @id @default(uuid())
+  prayerRequestId String
+  authorId      String?
+  note          String
+  isInternal    Boolean       @default(true)
+
+  createdAt     DateTime      @default(now()) @db.Timestamptz(6)
+
+  prayerRequest PrayerRequest  @relation(fields: [prayerRequestId], references: [id], onDelete: Cascade)
+  author        User?         @relation(fields: [authorId], references: [id])
+
+  @@index([prayerRequestId])
+  @@index([authorId])
+}
 enum Gender {
   MALE
   FEMALE
@@ -673,7 +740,12 @@ enum CommunicationType {
   DEVOTIONAL
   EVENT
   SERMON
+  PRAYER_REQUEST_RECEIVED
+  PRAYER_REQUEST_ASSIGNED
+  PRAYER_REQUEST_ANSWERED
   PRAYER_UPDATE
+  PRAYER_TEAM_NOTE
+  PRAYER_FOLLOW_UP
   THANK_YOU
   FOLLOW_UP
   EMERGENCY
@@ -704,4 +776,37 @@ enum InviteStatus {
   PENDING
   ACCEPTED
   EXPIRED
+}
+enum PrayerRequestCategory {
+  HEALING
+  FINANCIAL_PROVISION
+  FAMILY_MARRIAGE
+  SALVATION
+  DELIVERANCE
+  JOB
+  SCHOOL
+  THANKSGIVING
+  OTHER
+}
+
+enum PrayerRequestVisibility {
+  PRIVATE
+  TEAM_ONLY
+  PUBLIC
+}
+
+enum PrayerRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum PrayerRequestStatus {
+  PENDING
+  ASSIGNED
+  PRAYING
+  ANSWERED
+  CLOSED
+  ARCHIVED
 }

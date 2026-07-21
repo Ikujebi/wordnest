@@ -26,7 +26,7 @@ export class SearchService {
     // Isolate search terms to natively support non-linear multi-word matches ("Abraham Kehinde")
     const searchWords = searchString.split(/\s+/).filter(Boolean);
 
-    const [members, events, sermons, departments, giving] = await Promise.all([
+    const [members, events, rawSermons, departments, giving] = await Promise.all([
       // 1. Members - Highly targeted column payload selection
       this.prisma.member.findMany({
         where: {
@@ -67,20 +67,20 @@ export class SearchService {
         take: 5,
       }),
 
-      // 3. Sermons - Multi-word cross matches against title and speakers
+      // 3. Sermons - Multi-word cross matches against title and preacher
       this.prisma.sermon.findMany({
         where: {
           AND: searchWords.map(word => ({
             OR: [
               { title: { contains: word, mode: 'insensitive' } },
-              { speaker: { contains: word, mode: 'insensitive' } },
+              { preacher: { contains: word, mode: 'insensitive' } }, // 👈 Updated from speaker to preacher
             ],
           })),
         },
         select: {
           id: true,
           title: true,
-          speaker: true,
+          preacher: true, // 👈 Updated from speaker to preacher
         },
         take: 5,
       }),
@@ -102,23 +102,21 @@ export class SearchService {
         take: 5,
       }),
 
-      // 5. Giving - Extends multi-word lookups to donor profiles
+      // 5. Giving - Reference search
       this.prisma.giving.findMany({
         where: {
           deletedAt: null,
           AND: searchWords.map(word => ({
             OR: [
-              { donorName: { contains: word, mode: 'insensitive' } },
               { reference: { contains: word, mode: 'insensitive' } },
             ],
           })),
         },
         select: {
           id: true,
-          donorName: true,
           type: true,
           reference: true,
-          amount: true, // Decimal type gets safely mapped out
+          amount: true,
         },
         take: 5,
       }),
@@ -126,20 +124,22 @@ export class SearchService {
 
     return {
       members,
-      sermons,
+      // Map 'preacher' from Prisma to 'speaker' for frontend contract compatibility
+      sermons: rawSermons.map(s => ({
+        id: s.id,
+        title: s.title,
+        speaker: s.preacher ?? 'Unknown Speaker',
+      })),
       media: [],
       admins: [],
       auditLogs: [],
       giving: giving.map(g => ({
-  id: g.id,
-  // Fallback to 'Anonymous' or empty string if donorName is null/missing
-  donorName: (g as any).donorName || 'Anonymous Contribution', 
-  type: g.type,
-  // Safe string fallback to convert null values into an empty string
-  reference: g.reference ?? '', 
-  // Safely cast Prisma.Decimal to a standard JavaScript number
-  amount: typeof g.amount === 'object' ? Number(g.amount) : g.amount,
-})),
+        id: g.id,
+        donorName: 'Anonymous Contribution', 
+        type: g.type,
+        reference: g.reference ?? '', 
+        amount: typeof g.amount === 'object' ? Number(g.amount) : g.amount,
+      })),
       events: events.map((e: any) => {
         const fallBackDate = e.date ? new Date(e.date) : new Date();
         return {
