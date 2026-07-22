@@ -11,199 +11,296 @@ export class SuperAdminService {
   // ==========================================
 
   async getDashboardStats() {
-  const now = new Date();
+    const now = new Date();
 
-  const startOfCurrentMonth = new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      1,
-      0,
-      0,
-      0,
-      0,
-    ),
-  );
+    // Time boundary definitions (UTC)
+    const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const startOfPreviousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const sixMonthsAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
 
+    const [
+      // --- OVERVIEW COUNTS ---
+      totalMembers,
+      activeWorkers,
+      totalAdmins,
+      totalDepartments,
+      totalEvents,
+      totalSermons,
+      unreadMessages,
+      pendingPrayerRequests,
+      currentMonthlyGiving,
 
-  const [
-    totalMembers,
-    activeWorkers,
-    totalAdmins,
-    totalDepartments,
-    totalEvents,
-    totalSermons,
-    unreadMessages,
-    pendingPrayerRequests,
-    monthlyGivingSum,
-  ] = await Promise.all([
+      // --- PRIOR MONTH COUNTS (For Growth Calculations) ---
+      prevMembersCount,
+      prevWorkersCount,
+      prevGivingSum,
+      prevEventsCount,
 
-    // Members
-    this.prisma.member.count({
-      where:{
-        deletedAt:null,
-      },
-    }),
+      // --- HISTORICAL CHART DATA ---
+      membersChartRaw,
+      givingChartRaw,
+      attendanceChartRaw,
 
+      // --- RECENT ACTIVITIES ---
+      auditLogs,
+      latestMembers,
+      latestPrayerRequests,
+      latestMessages,
+      latestEvents,
+    ] = await Promise.all([
+      // 1. Total Members
+      this.prisma.member.count({ where: { deletedAt: null } }),
 
-    // Workers
-    this.prisma.member.count({
-      where:{
-        isWorker:true,
-        deletedAt:null,
-      },
-    }),
+      // 2. Active Workers
+      this.prisma.member.count({ where: { isWorker: true, deletedAt: null } }),
 
+      // 3. Total Admins
+      this.prisma.user.count({
+        where: { role: { in: [Role.ADMIN, Role.SUPER_ADMIN] }, deletedAt: null },
+      }),
 
-    // Admins
-    this.prisma.user.count({
-      where:{
-        role:{
-          in:[
-            Role.ADMIN,
-            Role.SUPER_ADMIN,
-          ],
+      // 4. Total Departments
+      this.prisma.department.count({ where: { deletedAt: null } }),
+
+      // 5. Total Events
+      this.prisma.event.count({ where: { deletedAt: null } }),
+
+      // 6. Total Sermons
+      this.prisma.sermon.count({ where: { deletedAt: null } }),
+
+      // 7. Unread Messages
+      this.prisma.contactMessage.count({ where: { isRead: false, deletedAt: null } }),
+
+      // 8. Pending Prayer Requests
+      this.prisma.prayerRequest.count({ where: { status: 'PENDING', deletedAt: null } }),
+
+      // 9. Current Month Giving Sum
+      this.prisma.giving.aggregate({
+        _sum: { amount: true },
+        where: { createdAt: { gte: startOfCurrentMonth }, deletedAt: null },
+      }),
+
+      // --- GROWTH BENCHMARKS ---
+      // 10. Members prior to current month
+      this.prisma.member.count({
+        where: { createdAt: { lt: startOfCurrentMonth }, deletedAt: null },
+      }),
+
+      // 11. Workers prior to current month
+      this.prisma.member.count({
+        where: {
+          isWorker: true,
+          createdAt: { lt: startOfCurrentMonth },
+          deletedAt: null,
         },
-        deletedAt:null,
-      },
-    }),
+      }),
 
-
-    // Departments
-    this.prisma.department.count({
-      where:{
-        deletedAt:null,
-      },
-    }),
-
-
-    // Events
-    this.prisma.event.count({
-      where:{
-        deletedAt:null,
-      },
-    }),
-
-
-    // Sermons
-    this.prisma.sermon.count({
-      where:{
-        deletedAt:null,
-      },
-    }),
-
-
-    // Contact messages
-    this.prisma.contactMessage.count({
-      where:{
-        isRead:false,
-        deletedAt:null,
-      },
-    }),
-
-
-    // Prayer requests
-    this.prisma.prayerRequest.count({
-      where:{
-        status:"PENDING",
-        deletedAt:null,
-      },
-    }),
-
-
-    // Giving
-    this.prisma.giving.aggregate({
-      _sum:{
-        amount:true,
-      },
-      where:{
-        createdAt:{
-          gte:startOfCurrentMonth,
+      // 12. Giving sum in previous month
+      this.prisma.giving.aggregate({
+        _sum: { amount: true },
+        where: {
+          createdAt: { gte: startOfPreviousMonth, lt: startOfCurrentMonth },
+          deletedAt: null,
         },
-        deletedAt:null,
+      }),
+
+      // 13. Events prior to current month
+      this.prisma.event.count({
+        where: { createdAt: { lt: startOfCurrentMonth }, deletedAt: null },
+      }),
+
+      // --- CHARTS DATA ---
+      // 14. Monthly Member Signups (Last 6 Months)
+      this.prisma.member.groupBy({
+        by: ['createdAt'],
+        _count: { _all: true },
+        where: { createdAt: { gte: sixMonthsAgo }, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      }),
+
+      // 15. Monthly Giving Totals (Last 6 Months)
+      this.prisma.giving.groupBy({
+        by: ['createdAt'],
+        _sum: { amount: true },
+        where: { createdAt: { gte: sixMonthsAgo }, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      }),
+
+      // 16. Event Attendance (Recent completed/past events)
+      this.prisma.event.findMany({
+        take: 6,
+        where: { startDate: { lte: now }, deletedAt: null },
+        orderBy: { startDate: 'desc' },
+        select: {
+          id: true,
+          title: true,
+          startDate: true,
+          _count: { select: { attendances: true } },
+        },
+      }),
+
+      // --- RECENT LISTS ---
+      // 17. Recent Audit Logs
+      this.prisma.auditLog.findMany({
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          action: true,
+          entity: true,
+          entityId: true,
+          createdAt: true,
+          user: { select: { fullName: true } },
+        },
+      }),
+
+      // 18. Latest Members
+      this.prisma.member.findMany({
+        take: 5,
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          createdAt: true,
+        },
+      }),
+
+      // 19. Latest Prayer Requests
+      this.prisma.prayerRequest.findMany({
+        take: 5,
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          fullName: true,
+          subject: true,
+          status: true,
+          createdAt: true,
+        },
+      }),
+
+      // 20. Latest Contact Messages
+      this.prisma.contactMessage.findMany({
+        take: 5,
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          subject: true,
+          isRead: true,
+          createdAt: true,
+        },
+      }),
+
+      // 21. Latest/Upcoming Events
+      this.prisma.event.findMany({
+        take: 5,
+        where: { deletedAt: null },
+        orderBy: { startDate: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          startDate: true,
+          location: true,
+        },
+      }),
+    ]);
+
+    // Helper: Compute Percentage Growth
+    const computeGrowth = (current: number, previous: number): number => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return Number((((current - previous) / previous) * 100).toFixed(1));
+    };
+
+    const currentGivingVal = Number(currentMonthlyGiving._sum.amount ?? 0);
+    const prevGivingVal = Number(prevGivingSum._sum.amount ?? 0);
+
+    const memberGrowthVal = totalMembers - prevMembersCount;
+    const workerGrowthVal = activeWorkers - prevWorkersCount;
+    const eventGrowthVal = totalEvents - prevEventsCount;
+
+    return {
+      overview: {
+        totalMembers,
+        activeWorkers,
+        totalAdmins,
+        totalDepartments,
+        totalEvents,
+        totalSermons,
+        monthlyGiving: currentGivingVal,
+        unreadMessages,
+        pendingPrayerRequests,
       },
-    }),
 
-  ]);
+      growth: {
+        members: computeGrowth(totalMembers, prevMembersCount),
+        workers: computeGrowth(activeWorkers, prevWorkersCount),
+        giving: computeGrowth(currentGivingVal, prevGivingVal),
+        events: computeGrowth(totalEvents, prevEventsCount),
+      },
 
+      charts: {
+        monthlyMembers: this.groupDataByMonth(membersChartRaw, '_count'),
+        monthlyGiving: this.groupDataByMonth(givingChartRaw, '_sum'),
+        attendance: attendanceChartRaw.map((e) => ({
+          eventId: e.id,
+          title: e.title,
+          date: e.startDate,
+          count: e._count.attendances,
+        })),
+      },
 
-  return {
+      recent: {
+        auditLogs,
+        latestMembers,
+        latestPrayerRequests,
+        latestMessages,
+        latestEvents,
+      },
+    };
+  }
 
-    members:{
-      total:totalMembers,
-    },
+  // Helper method to bucket raw aggregate timestamps into "YYYY-MM"
+  private groupDataByMonth(data: any[], countOrSumKey: '_count' | '_sum') {
+    const monthlyMap = new Map<string, number>();
 
+    for (const item of data) {
+      const monthKey = new Date(item.createdAt).toISOString().substring(0, 7); // "YYYY-MM"
+      const val =
+        countOrSumKey === '_count'
+          ? item._count._all ?? 1
+          : Number(item._sum.amount ?? 0);
 
-    workers:{
-      active:activeWorkers,
-    },
+      monthlyMap.set(monthKey, (monthlyMap.get(monthKey) || 0) + val);
+    }
 
-
-    admins:{
-      total:totalAdmins,
-    },
-
-
-    departments:{
-      total:totalDepartments,
-    },
-
-
-    events:{
-      total:totalEvents,
-    },
-
-
-    sermons:{
-      total:totalSermons,
-    },
-
-
-    messages:{
-      unread:unreadMessages,
-    },
-
-
-    prayers:{
-      pending:pendingPrayerRequests,
-    },
-
-
-    giving:{
-      monthly:Number(
-        monthlyGivingSum._sum.amount ?? 0
-      ),
-    },
-
-
-    growthRate:0,
-
-  };
-}
+    return Array.from(monthlyMap.entries()).map(([month, value]) => ({
+      month,
+      value,
+    }));
+  }
 
   async getRecentProvisionings() {
     return this.prisma.auditLog.findMany({
       take: 5,
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         action: true,
         entity: true,
         entityId: true,
-        createdAt: true, 
-        user: {
-          select: {
-            fullName: true 
-          }
-        }
+        createdAt: true,
+        user: { select: { fullName: true } },
       },
     });
   }
 
   // ==========================================
-  //         INDIVIDUAL TARGETING METHODS
+  //        INDIVIDUAL TARGETING METHODS
   // ==========================================
 
   async targetIndividualUser(userId: string) {
@@ -228,10 +325,10 @@ export class SuperAdminService {
             maritalStatus: true,
             isWorker: true,
             occupation: true,
-            address: true
-          }
-        }
-      }
+            address: true,
+          },
+        },
+      },
     });
 
     if (!user || user.deletedAt) {
@@ -245,7 +342,7 @@ export class SuperAdminService {
     return this.prisma.user.findMany({
       where: {
         role: targetRole,
-        deletedAt: null 
+        deletedAt: null,
       },
       select: {
         id: true,
@@ -253,9 +350,9 @@ export class SuperAdminService {
         fullName: true,
         isActive: true,
         createdAt: true,
-        lastLoginAt: true
+        lastLoginAt: true,
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -272,8 +369,8 @@ export class SuperAdminService {
         id: true,
         fullName: true,
         role: true,
-        isActive: true
-      }
+        isActive: true,
+      },
     });
   }
 }
