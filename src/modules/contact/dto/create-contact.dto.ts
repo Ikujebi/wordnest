@@ -9,20 +9,20 @@ import {
 export class CreateContactDto {
   @IsString()
   @IsNotEmpty()
-  @MaxLength(100)
-  firstName!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  lastName!: string;
+  @MaxLength(200)
+  fullName!: string;
 
   @IsEmail()
   email!: string;
 
   @IsOptional()
   @IsString()
-  phone?: string;
+  phoneNumber?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  subject!: string;
 
   @IsString()
   @IsNotEmpty()

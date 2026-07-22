@@ -5,10 +5,10 @@ import {
   InternalServerErrorException,
   BadRequestException,
 } from '@nestjs/common';
-import { Prisma, Role, NotificationType, ContactMessage } from '@prisma/client';
-import { ContactRepository, ContactQueryOptions } from './contact.repository';
+
+import { Prisma, Role } from '@prisma/client';
+import { ContactRepository } from './contact.repository';
 import { NotificationService } from '../notifications/notification.service';
-import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
 export class ContactService {
@@ -17,17 +17,15 @@ export class ContactService {
   constructor(
     private readonly contactRepository: ContactRepository,
     private readonly notificationService: NotificationService,
-    private readonly prisma: PrismaService,
   ) {}
 
   /**
-   * Create a new contact message (Public API)
+   * Create contact message & notify admins
    */
-  async create(data: Prisma.ContactMessageCreateInput): Promise<ContactMessage> {
+  async create(data: Prisma.ContactMessageCreateInput) {
     try {
       const contact = await this.contactRepository.create(data);
 
-      // Dispatch non-blocking admin notification
       await this.notifyAdmins(contact);
 
       return contact;
@@ -40,16 +38,40 @@ export class ContactService {
   }
 
   /**
-   * Fetch contacts with filters and pagination
+   * Find all contact messages
    */
-  async findAll(query: ContactQueryOptions = {}) {
-    return this.contactRepository.findAll(query);
+  async findAll(options?: any) {
+    try {
+      return await this.contactRepository.findAll(options);
+    } catch (error) {
+      this.logger.error('Failed fetching contact messages', error);
+      throw new InternalServerErrorException(
+        'Unable to fetch contact messages',
+      );
+    }
   }
 
   /**
-   * Fetch single contact by ID
+   * Fetch latest contact messages for dashboard widgets
    */
-  async findOne(id: string): Promise<ContactMessage> {
+  async latest(limit = 5) {
+    try {
+      return await this.contactRepository.findAll({
+        limit,
+        page: 1,
+      });
+    } catch (error) {
+      this.logger.error('Failed fetching latest contact messages', error);
+      throw new InternalServerErrorException(
+        'Unable to fetch latest contact messages',
+      );
+    }
+  }
+
+  /**
+   * Find single contact message
+   */
+  async findOne(id: string) {
     const contact = await this.contactRepository.findById(id);
 
     if (!contact) {
@@ -62,142 +84,212 @@ export class ContactService {
   /**
    * Mark message as read
    */
-  async markAsRead(id: string): Promise<ContactMessage> {
-    await this.findOne(id);
-    return this.contactRepository.markAsRead(id);
+  async markAsRead(id: string) {
+    const exists = await this.contactRepository.exists(id);
+
+    if (!exists) {
+      throw new NotFoundException('Contact message not found');
+    }
+
+    try {
+      return await this.contactRepository.update(id, { isRead: true });
+    } catch (error) {
+      this.logger.error(`Failed marking contact ${id} as read`, error);
+      throw new InternalServerErrorException('Unable to mark contact as read');
+    }
   }
 
   /**
-   * Resolve contact message with assigned handler
+   * Update contact message
    */
-  async resolve(id: string, assignedToId: string): Promise<ContactMessage> {
-    await this.findOne(id);
-    return this.contactRepository.resolve(id, assignedToId);
+  async update(id: string, data: Prisma.ContactMessageUpdateInput) {
+    const exists = await this.contactRepository.exists(id);
+
+    if (!exists) {
+      throw new NotFoundException('Contact message not found');
+    }
+
+    try {
+      return await this.contactRepository.update(id, data);
+    } catch (error) {
+      this.logger.error(`Failed updating contact ${id}`, error);
+      throw new InternalServerErrorException(
+        'Unable to update contact message',
+      );
+    }
   }
 
   /**
-   * Unresolve contact message
+   * Assign contact message to an admin/user
    */
-  async unresolve(id: string): Promise<ContactMessage> {
-    await this.findOne(id);
+  async assign(id: string, assignedToId: string) {
+    const exists = await this.contactRepository.exists(id);
+
+    if (!exists) {
+      throw new NotFoundException('Contact message not found');
+    }
+
+    try {
+      return await this.contactRepository.update(id, {
+        assignedTo: { connect: { id: assignedToId } },
+      });
+    } catch (error) {
+      this.logger.error(`Failed assigning contact ${id}`, error);
+      throw new InternalServerErrorException('Unable to assign contact message');
+    }
+  }
+
+/**
+ * Resolve contact message
+ */
+async resolve(id: string, assignedToId?: string) {
+  const exists = await this.contactRepository.exists(id);
+
+  if (!exists) {
+    throw new NotFoundException('Contact message not found');
+  }
+
+  return this.contactRepository.resolve(id, assignedToId);
+}
+  /**
+   * Reopen/unresolve contact message
+   */
+  async unresolve(id: string) {
+    const exists = await this.contactRepository.exists(id);
+
+    if (!exists) {
+      throw new NotFoundException('Contact message not found');
+    }
+
     return this.contactRepository.unresolve(id);
   }
 
   /**
-   * Update contact fields
+   * Soft delete contact message
    */
-  async update(
-    id: string,
-    data: Prisma.ContactMessageUpdateInput,
-  ): Promise<ContactMessage> {
-    await this.findOne(id);
-    return this.contactRepository.update(id, data);
-  }
+  async remove(id: string) {
+    const exists = await this.contactRepository.exists(id);
 
-  /**
-   * Soft delete contact
-   */
-  async remove(id: string): Promise<ContactMessage> {
-    await this.findOne(id);
+    if (!exists) {
+      throw new NotFoundException('Contact message not found');
+    }
+
     return this.contactRepository.softDelete(id);
   }
 
   /**
-   * Restore soft-deleted contact
+   * Permanently purge contact message from DB (Super Admin only)
    */
-  async restore(id: string): Promise<ContactMessage> {
-    return this.contactRepository.restore(id);
-  }
-
-  /**
-   * Permanently purge contact record
-   */
-  async deletePermanent(id: string): Promise<ContactMessage> {
-    await this.findOne(id);
-    return this.contactRepository.deletePermanent(id);
-  }
-
-  /**
-   * Bulk resolve contact messages
-   */
-  async bulkResolve(ids: string[], assignedToId: string) {
-    if (!ids || ids.length === 0) {
-      throw new BadRequestException('No contact IDs supplied');
+  async deletePermanent(id: string) {
+    try {
+      return await this.contactRepository.deletePermanent(id);
+    } catch (error) {
+      this.logger.error(`Failed permanently deleting contact ${id}`, error);
+      throw new InternalServerErrorException(
+        'Unable to permanently delete contact',
+      );
     }
-    return this.contactRepository.bulkResolve(ids, assignedToId);
   }
 
   /**
-   * Bulk soft-delete contact messages
+   * Restore deleted contact
+   */
+  async restore(id: string) {
+    try {
+      return await this.contactRepository.restore(id);
+    } catch (error) {
+      this.logger.error(`Failed restoring contact ${id}`, error);
+      throw new InternalServerErrorException('Unable to restore contact');
+    }
+  }
+
+  /**
+   * Contact statistics
+   */
+  async statistics() {
+    try {
+      return await this.contactRepository.statistics();
+    } catch (error) {
+      this.logger.error('Failed getting contact statistics', error);
+      throw new InternalServerErrorException('Unable to fetch statistics');
+    }
+  }
+
+/**
+ * Bulk resolve contacts
+ */
+async bulkResolve(ids: string[], assignedToId?: string) {
+  if (!ids || !ids.length) {
+    throw new BadRequestException('No contact IDs provided');
+  }
+
+  return this.contactRepository.bulkResolve(ids, assignedToId);
+}
+
+  /**
+   * Bulk soft delete contacts
    */
   async bulkDelete(ids: string[]) {
-    if (!ids || ids.length === 0) {
-      throw new BadRequestException('No contact IDs supplied');
+    if (!ids || !ids.length) {
+      throw new BadRequestException('No contact IDs provided');
     }
+
     return this.contactRepository.bulkDelete(ids);
   }
 
   /**
-   * Bulk restore contact messages
+   * Bulk restore contacts
    */
   async bulkRestore(ids: string[]) {
-    if (!ids || ids.length === 0) {
-      throw new BadRequestException('No contact IDs supplied');
+    if (!ids || !ids.length) {
+      throw new BadRequestException('No contact IDs provided');
     }
-    return this.contactRepository.bulkRestore(ids);
-  }
 
-  /**
-   * Dashboard statistics
-   */
-  async statistics() {
-    return this.contactRepository.statistics();
-  }
-
-  /**
-   * Get latest submissions widget data
-   */
-  async latest(limit = 5) {
-    return this.contactRepository.latest(limit);
-  }
-
-  /**
-   * Notify administrators about incoming public messages
-   */
-  private async notifyAdmins(contact: ContactMessage): Promise<void> {
     try {
-      // Inject PrismaService directly instead of reaching into repository private properties
-      const users = await this.prisma.user.findMany({
-        where: {
-          role: {
-            in: [Role.ADMIN, Role.SUPER_ADMIN],
-          },
-          isActive: true,
-          deletedAt: null,
-        },
-        select: {
-          id: true,
-        },
-      });
+      return await this.contactRepository.bulkRestore(ids);
+    } catch (error) {
+      this.logger.error('Failed bulk restoring contacts', error);
+      throw new InternalServerErrorException('Unable to bulk restore contacts');
+    }
+  }
 
-      if (!users.length) {
+  /**
+   * Private helper to notify active admins
+   */
+  private async notifyAdmins(contact: any) {
+    try {
+      const admins = await this.getAdmins();
+
+      if (!admins.length) {
+        this.logger.warn('No administrators found for contact notification');
         return;
       }
 
-      await this.notificationService.createForUsers(
-        users.map((user) => user.id),
-        {
-          title: 'New Contact Message Received',
-          message: `${contact.fullName} sent a new message: ${contact.subject}`,
-          type: NotificationType.SYSTEM,
-        },
+      const userIds = admins.map((admin) => admin.id);
+      const subjectText = contact.subject ? `\nSubject:\n${contact.subject}\n` : '';
+
+      await this.notificationService.notifyMany(
+        userIds,
+        'New Contact Message',
+        `New message received from ${contact.fullName || 'a visitor'}.${subjectText}\nEmail: ${contact.email}\n\nPlease review from the admin dashboard.`,
+        'SYSTEM' as any,
       );
     } catch (error) {
-      // Non-blocking warning on notification failure
-      this.logger.warn(
-        `Unable to notify administrators for contact message ${contact.id}`,
-        error instanceof Error ? error.stack : error,
-      );
+      this.logger.error('Failed notifying administrators', error);
     }
+  }
+
+  /**
+   * Get admin users
+   */
+  private async getAdmins() {
+    return this.contactRepository['prisma'].user.findMany({
+      where: {
+        role: { in: [Role.ADMIN, Role.SUPER_ADMIN] },
+        isActive: true,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
   }
 }

@@ -11,47 +11,175 @@ export class SuperAdminService {
   // ==========================================
 
   async getDashboardStats() {
-    // Generate an absolute UTC start date for the current calendar month
-    const now = new Date();
-    const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  const now = new Date();
 
-    const [totalMembers, activeWorkers, monthlyGivingSum] = await Promise.all([
-      this.prisma.member.count({
-        where: { deletedAt: null }
-      }),
+  const startOfCurrentMonth = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      1,
+      0,
+      0,
+      0,
+      0,
+    ),
+  );
 
-      this.prisma.member.count({
-        where: { 
-          isWorker: true,
-          deletedAt: null
+
+  const [
+    totalMembers,
+    activeWorkers,
+    totalAdmins,
+    totalDepartments,
+    totalEvents,
+    totalSermons,
+    unreadMessages,
+    pendingPrayerRequests,
+    monthlyGivingSum,
+  ] = await Promise.all([
+
+    // Members
+    this.prisma.member.count({
+      where:{
+        deletedAt:null,
+      },
+    }),
+
+
+    // Workers
+    this.prisma.member.count({
+      where:{
+        isWorker:true,
+        deletedAt:null,
+      },
+    }),
+
+
+    // Admins
+    this.prisma.user.count({
+      where:{
+        role:{
+          in:[
+            Role.ADMIN,
+            Role.SUPER_ADMIN,
+          ],
         },
-      }),
+        deletedAt:null,
+      },
+    }),
 
-      this.prisma.giving.aggregate({
-        _sum: {
-          amount: true,
+
+    // Departments
+    this.prisma.department.count({
+      where:{
+        deletedAt:null,
+      },
+    }),
+
+
+    // Events
+    this.prisma.event.count({
+      where:{
+        deletedAt:null,
+      },
+    }),
+
+
+    // Sermons
+    this.prisma.sermon.count({
+      where:{
+        deletedAt:null,
+      },
+    }),
+
+
+    // Contact messages
+    this.prisma.contactMessage.count({
+      where:{
+        isRead:false,
+        deletedAt:null,
+      },
+    }),
+
+
+    // Prayer requests
+    this.prisma.prayerRequest.count({
+      where:{
+        status:"PENDING",
+        deletedAt:null,
+      },
+    }),
+
+
+    // Giving
+    this.prisma.giving.aggregate({
+      _sum:{
+        amount:true,
+      },
+      where:{
+        createdAt:{
+          gte:startOfCurrentMonth,
         },
-        where: {
-          createdAt: {
-            gte: startOfCurrentMonth,
-          },
-          deletedAt: null 
-        },
-      }),
-    ]);
+        deletedAt:null,
+      },
+    }),
 
-    // Securely cast the Prisma.Decimal object into a native standard JavaScript number
-    const monthlyGiving = monthlyGivingSum?._sum?.amount 
-      ? Number(monthlyGivingSum._sum.amount) 
-      : 0;
+  ]);
 
-    return {
-      totalMembers,
-      activeWorkers,
-      monthlyGiving,
-      growthRate: 0, 
-    };
-  }
+
+  return {
+
+    members:{
+      total:totalMembers,
+    },
+
+
+    workers:{
+      active:activeWorkers,
+    },
+
+
+    admins:{
+      total:totalAdmins,
+    },
+
+
+    departments:{
+      total:totalDepartments,
+    },
+
+
+    events:{
+      total:totalEvents,
+    },
+
+
+    sermons:{
+      total:totalSermons,
+    },
+
+
+    messages:{
+      unread:unreadMessages,
+    },
+
+
+    prayers:{
+      pending:pendingPrayerRequests,
+    },
+
+
+    giving:{
+      monthly:Number(
+        monthlyGivingSum._sum.amount ?? 0
+      ),
+    },
+
+
+    growthRate:0,
+
+  };
+}
 
   async getRecentProvisionings() {
     return this.prisma.auditLog.findMany({

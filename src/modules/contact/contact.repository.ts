@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, ContactMessage } from '@prisma/client';
+import { Prisma, ContactMessage, Role } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 export interface ContactQueryOptions {
@@ -18,6 +18,22 @@ export interface ContactQueryOptions {
 @Injectable()
 export class ContactRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Fetch admin users by roles for notification dispatch
+   */
+  async findAdmins(roles: Role[] = [Role.ADMIN, Role.SUPER_ADMIN]) {
+    return this.prisma.user.findMany({
+      where: {
+        role: { in: roles },
+        isActive: true,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
 
   /**
    * Create contact message
@@ -126,7 +142,7 @@ export class ContactRepository {
   }
 
   /**
-   * Mark as read
+   * Mark message as read
    */
   async markAsRead(id: string) {
     return this.prisma.contactMessage.update({
@@ -136,14 +152,15 @@ export class ContactRepository {
   }
 
   /**
-   * Resolve contact and assign handler
+   * Resolve contact and assign handler (if provided)
    */
-  async resolve(id: string, assignedToId: string) {
+  async resolve(id: string, assignedToId?: string) {
     return this.prisma.contactMessage.update({
       where: { id },
       data: {
         isResolved: true,
-        assignedToId,
+        resolvedAt: new Date(),
+        ...(assignedToId && { assignedToId }),
       },
     });
   }
@@ -156,6 +173,7 @@ export class ContactRepository {
       where: { id },
       data: {
         isResolved: false,
+        resolvedAt: null,
         assignedToId: null,
       },
     });
@@ -254,7 +272,7 @@ export class ContactRepository {
   }
 
   /**
-   * Fetch recent messages for quick dashboard widgets
+   * Fetch recent messages for dashboard widgets
    */
   async latest(limit = 5) {
     return this.prisma.contactMessage.findMany({
@@ -265,14 +283,15 @@ export class ContactRepository {
   }
 
   /**
-   * Bulk resolve
+   * Bulk resolve contacts
    */
-  async bulkResolve(ids: string[], assignedToId: string) {
+  async bulkResolve(ids: string[], assignedToId?: string) {
     return this.prisma.contactMessage.updateMany({
       where: { id: { in: ids } },
       data: {
         isResolved: true,
-        assignedToId,
+        resolvedAt: new Date(),
+        ...(assignedToId && { assignedToId }),
       },
     });
   }

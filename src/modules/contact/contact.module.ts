@@ -1,12 +1,28 @@
 import { Module } from '@nestjs/common';
+
 import { ContactController } from './contact.controller';
 import { ContactService } from './contact.service';
-import { PrismaModule } from '../../prisma/prisma.module';
+import { ContactRepository } from './contact.repository';
+
+// Updated import to match the plural export 'NotificationsModule'
+import { NotificationsModule } from '../notifications/notification.module';
 
 @Module({
-  imports: [PrismaModule],
-  controllers: [ContactController],
-  providers: [ContactService],
-  exports: [ContactService],
+  imports: [
+    NotificationsModule,
+  ],
+
+  controllers: [
+    ContactController,
+  ],
+
+  providers: [
+    ContactService,
+    ContactRepository,
+  ],
+
+  exports: [
+    ContactService,
+  ],
 })
 export class ContactModule {}
