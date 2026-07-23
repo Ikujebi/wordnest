@@ -7,31 +7,27 @@ import {
   Body,
   Param,
   Query,
-  Req,
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
-
-// Fix 1 & 2: Import Request type safely alongside custom AuthenticatedRequest
-import type { Request } from 'express';
+import { Role } from '@prisma/client';
 
 import { NotificationService } from './notification.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { NotificationQueryDto } from './dto/notification-query.dto';
 
-// Replace with your actual auth guard path
+// Replace with your actual auth guard, roles guard, decorators, and enum paths
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 
-// Fix 2: Interface extending Express Request with authenticated user
-interface AuthenticatedRequest extends Request {
-  user: {
-    id: string;
-    [key: string]: any;
-  };
-}
+// Audit logging imports
+import { Audit } from '../audit-log/decorators/audit.decorator'; // Adjust import path to match your project
+import { AuditAction } from '../audit-log/enums/audit-action.enum';
 
 @Controller('notifications')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class NotificationController {
   constructor(
     private readonly notificationService: NotificationService,
@@ -42,7 +38,12 @@ export class NotificationController {
    *
    * Admin/system usage
    */
+  @Audit({
+    action: AuditAction.CREATE_NOTIFICATION,
+    entity: 'Notification',
+  })
   @Post()
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async create(@Body() dto: CreateNotificationDto) {
     return this.notificationService.create(dto);
   }
@@ -55,14 +56,30 @@ export class NotificationController {
    */
   @Get()
   async findAll(
-    @Req() req: AuthenticatedRequest,
+    @CurrentUser('id') userId: string,
     @Query() query: NotificationQueryDto,
   ) {
-    // Fix 3: Merge userId and query DTO into a single params object expected by service.findAll
     return this.notificationService.findAll({
       ...query,
-      userId: req.user.id,
+      userId,
     });
+  }
+
+  /**
+   * Get unread count
+   */
+  @Get('stats/unread-count')
+  async unreadCount(@CurrentUser('id') userId: string) {
+    return this.notificationService.unreadCount(userId);
+  }
+
+  /**
+   * Notification statistics
+   */
+  @Get('stats')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  async statistics() {
+    return this.notificationService.statistics();
   }
 
   /**
@@ -76,6 +93,10 @@ export class NotificationController {
   /**
    * Mark notification as read
    */
+  @Audit({
+    action: AuditAction.READ_NOTIFICATION,
+    entity: 'Notification',
+  })
   @Patch(':id/read')
   async markAsRead(@Param('id', ParseUUIDPipe) id: string) {
     return this.notificationService.markAsRead(id);
@@ -84,36 +105,28 @@ export class NotificationController {
   /**
    * Mark all notifications read
    */
+  @Audit({
+    action: AuditAction.READ_ALL_NOTIFICATIONS,
+    entity: 'Notification',
+  })
   @Patch('read-all')
-  async markAllAsRead(@Req() req: AuthenticatedRequest) {
-    return this.notificationService.markAllAsRead(req.user.id);
-  }
-
-  /**
-   * Get unread count
-   */
-  @Get('stats/unread-count')
-  async unreadCount(@Req() req: AuthenticatedRequest) {
-    return this.notificationService.unreadCount(req.user.id);
-  }
-
-  /**
-   * Notification statistics
-   */
-  @Get('stats')
-  async statistics() {
-    return this.notificationService.statistics();
+  async markAllAsRead(@CurrentUser('id') userId: string) {
+    return this.notificationService.markAllAsRead(userId);
   }
 
   /**
    * Delete notification
    */
+  @Audit({
+    action: AuditAction.DELETE_NOTIFICATION,
+    entity: 'Notification',
+  })
   @Delete(':id')
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
-    @Req() req: AuthenticatedRequest,
+    @CurrentUser('id') userId: string,
   ) {
-    return this.notificationService.remove(id, req.user.id);
+    return this.notificationService.remove(id, userId);
   }
 
   /**
@@ -121,7 +134,12 @@ export class NotificationController {
    *
    * Admin/system cleanup
    */
+  @Audit({
+    action: AuditAction.DELETE_OLD_NOTIFICATIONS,
+    entity: 'Notification',
+  })
   @Delete('cleanup/:days')
+  @Roles(Role.SUPER_ADMIN)
   async cleanup(@Param('days') days: number) {
     return this.notificationService.removeOlderThan(Number(days));
   }

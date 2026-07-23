@@ -23,7 +23,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
 import {NotificationsModule,} from './modules/notifications/notification.module';
-
+import { AuditLogModule } from './modules/audit-log/audit-log.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -49,6 +49,7 @@ import {NotificationsModule,} from './modules/notifications/notification.module'
     SuperAdminModule,
     AdminModule,
     MemberModule,
+    AuditLogModule,
   ],
 
   controllers: [AppController],

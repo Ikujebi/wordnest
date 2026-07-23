@@ -60,14 +60,47 @@ model User {
 }
 
 model AuditLog {
-  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  userId    String
-  action    String
-  entity    String?
-  entityId  String?
+  id String @id @default(dbgenerated("(gen_random_uuid())::text"))
+
+  // User
+  userId String?
+  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  userEmail String?
+  userRole  Role?
+
+  // Action
+  action      String
+  description String?
+
+  // Resource
+  entity   String?
+  entityId String?
+
+  // Request
+  method    String?
+  endpoint  String?
   ipAddress String?
+  userAgent String?
+
+  // Response
+  statusCode Int?
+  success    Boolean @default(true)
+
+  // Changes
+  oldValues Json?
+  newValues Json?
+
+  // Extra metadata
+  metadata Json?
+
   createdAt DateTime @default(now()) @db.Timestamptz(6)
-  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
 }
 
 model EmailVerificationToken {

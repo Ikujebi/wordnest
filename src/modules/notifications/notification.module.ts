@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-
+import { PrismaModule } from '../../prisma/prisma.module'; // Ensure path matches your project structure
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
 import { NotificationRepository } from './notification.repository';
@@ -11,8 +12,9 @@ import { NotificationGateway } from './gateways/notification.gateway';
 
 @Module({
   imports: [
-    // PrismaModule, // Un-comment if Prisma is bundled in its own module
-  ],
+     PrismaModule, // Un-comment if Prisma is bundled in its own module
+  AuditLogModule,
+    ],
   controllers: [NotificationController],
   providers: [
     /**

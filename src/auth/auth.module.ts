@@ -1,3 +1,4 @@
+// src/auth/auth.module.ts
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
@@ -23,12 +24,16 @@ import { RolesGuard } from './guards/roles.guard';
 import { EmailModule } from '../email/email.module';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { UsersModule } from '../users/users.module';
+import { NotificationsModule } from "../modules/notifications/notification.module";
+import { AuditLogModule } from '../modules/audit-log/audit-log.module';
 
 @Module({
   imports: [
     EmailModule,
     CloudinaryModule,
     UsersModule,
+    NotificationsModule,
+    AuditLogModule,
 
     PassportModule.register({
       defaultStrategy: 'jwt',
