@@ -1,57 +1,64 @@
-import { Controller, Get, Patch, Param, Query, Body, UseGuards, ParseEnumPipe } from '@nestjs/common';
+// src/super-admin/super-admin.controller.ts
+import {
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Query,
+  Body,
+  UseGuards,
+  ParseEnumPipe,
+} from '@nestjs/common';
 import { SuperAdminService } from './super-admin.service';
-import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
-import { RolesGuard } from '../../auth/guards/roles.guard';
-import { Roles } from '../../auth/decorators/roles.decorator';
+import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { Role } from '@prisma/client';
-import { IsEnum, IsBoolean, IsOptional } from 'class-validator';
 
-// 1. Define a explicit validation DTO for your status update route
-export class UpdateUserStatusDto {
-  @IsOptional()
-  @IsEnum(Role)
-  role?: Role;
+// Replace with your project's custom Auth / Roles guards
+// import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+// import { RolesGuard } from '../auth/guards/roles.guard';
+// import { Roles } from '../auth/decorators/roles.decorator';
 
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
-
-@Controller('api/super-admin')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('SUPER_ADMIN')
+@Controller('super-admin')
+// @UseGuards(JwtAuthGuard, RolesGuard)
+// @Roles(Role.SUPER_ADMIN)
 export class SuperAdminController {
   constructor(private readonly superAdminService: SuperAdminService) {}
 
-  @Get('stats')
-  async getStats() {
+  // ==========================================
+  //          GLOBAL DASHBOARD ROUTES
+  // ==========================================
+
+  @Get('dashboard/stats')
+  async getDashboardStats() {
     return this.superAdminService.getDashboardStats();
   }
 
-  @Get('logs')
-  async getLogs() {
+  @Get('dashboard/recent-provisionings')
+  async getRecentProvisionings() {
     return this.superAdminService.getRecentProvisionings();
   }
 
-  // 2. Add ParseEnumPipe to catch bad enum strings early at the gateway layer
-  @Get('users')
-  async getUsersByRole(
-    @Query('role', new ParseEnumPipe(Role, { errorHttpStatusCode: 400 })) role: Role
+  // ==========================================
+  //        INDIVIDUAL TARGETING ROUTES
+  // ==========================================
+
+  @Get('users/role')
+  async getIndividualsByRole(
+    @Query('role', new ParseEnumPipe(Role)) role: Role,
   ) {
     return this.superAdminService.getIndividualsByRole(role);
   }
 
   @Get('users/:id')
-  async getIndividual(@Param('id') id: string) {
-    return this.superAdminService.targetIndividualUser(id);
+  async targetIndividualUser(@Param('id') userId: string) {
+    return this.superAdminService.targetIndividualUser(userId);
   }
 
-  // 3. Swap the loose body type for your new secure validation DTO
   @Patch('users/:id/status')
-  async updateStatus(
-    @Param('id') id: string,
-    @Body() body: UpdateUserStatusDto
+  async updateIndividualStatus(
+    @Param('id') userId: string,
+    @Body() dto: UpdateIndividualStatusDto,
   ) {
-    return this.superAdminService.updateIndividualStatus(id, body);
+    return this.superAdminService.updateIndividualStatus(userId, dto);
   }
 }

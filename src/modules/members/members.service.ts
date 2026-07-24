@@ -1,30 +1,65 @@
-import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Member, Prisma } from '@prisma/client';
+import { Member, Prisma, NotificationType } from '@prisma/client';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
+
+// Note: Ensure NotificationService and NotificationType are imported correctly
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class MembersService {
   private readonly logger = new Logger(MembersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService, // 👈 Added missing injection
+  ) {}
 
-  async createMemberProfile(userId: string, dto: CreateMemberDto): Promise<Member> {
+  async createMemberProfile(
+    userId: string,
+    dto: CreateMemberDto,
+  ): Promise<Member> {
     try {
-      return await this.prisma.member.create({
+      const member = await this.prisma.member.create({
         data: {
           ...dto,
           userId,
           dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
         },
       });
+
+      await this.notificationService.notify(userId, {
+        title: 'Welcome!',
+        message: 'Your church member profile has been created successfully.',
+        type: NotificationType.SYSTEM,
+      });
+
+      return member;
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException('This user account is already linked to a member profile.');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'This user account is already linked to a member profile.',
+        );
       }
-      this.logger.error(`Failed to create member profile for user ID: ${userId}`, error instanceof Error ? error.stack : String(error));
-      throw new InternalServerErrorException('An error occurred while creating the member profile.');
+
+      this.logger.error(
+        `Failed to create member profile for ${userId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      throw new InternalServerErrorException(
+        'An error occurred while creating the member profile.',
+      );
     }
   }
 
@@ -41,23 +76,46 @@ export class MembersService {
     return member;
   }
 
-  async updateMemberProfile(userId: string, dto: UpdateMemberDto): Promise<Member> {
+  async updateMemberProfile(
+    userId: string,
+    dto: UpdateMemberDto,
+  ): Promise<Member> {
+    await this.findByUserId(userId); // Validates existence
+
     const data: Prisma.MemberUpdateInput = {
       ...dto,
       dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
     };
 
     try {
-      return await this.prisma.member.update({
+      const updated = await this.prisma.member.update({
         where: { userId },
         data,
       });
+
+      await this.notificationService.notify(userId, {
+        title: 'Profile Updated',
+        message: 'Your member profile was updated successfully.',
+        type: NotificationType.SYSTEM,
+      });
+
+      return updated;
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-        throw new NotFoundException('Member profile not found or is inactive.');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Member profile not found.');
       }
-      this.logger.error(`Failed to update member profile for user ID: ${userId}`, error instanceof Error ? error.stack : String(error));
-      throw new InternalServerErrorException('An error occurred updating your profile information.');
+
+      this.logger.error(
+        `Failed updating member ${userId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      throw new InternalServerErrorException(
+        'Unable to update member profile.',
+      );
     }
   }
 
@@ -69,7 +127,9 @@ export class MembersService {
       where: { id, deletedAt: null },
     });
     if (!member) {
-      throw new NotFoundException(`Member with ID ${id} not found or has been soft-deleted.`);
+      throw new NotFoundException(
+        `Member with ID ${id} not found or has been soft-deleted.`,
+      );
     }
     return member;
   }
@@ -87,7 +147,29 @@ export class MembersService {
     });
 
     if (count !== memberIds.length) {
-      throw new NotFoundException('One or more targeted members could not be found or are inactive.');
+      throw new NotFoundException(
+        'One or more targeted members could not be found or are inactive.',
+      );
     }
+  }
+
+  async softDeleteMember(id: string): Promise<Member> {
+    await this.findById(id); // Validates existence
+
+    return this.prisma.member.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+      },
+    });
+  }
+
+  async restoreMember(id: string): Promise<Member> {
+    return this.prisma.member.update({
+      where: { id },
+      data: {
+        deletedAt: null,
+      },
+    });
   }
 }

@@ -18,7 +18,8 @@ import { EmailService } from './channels/email.service';
 import { SmsService } from './channels/sms.service';
 import { WhatsappService } from './channels/whatsapp.service';
 import { WebPushService } from './channels/push.service';
-
+import { NotificationsModule } from '../notifications/notification.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { SmsQueueService } from './channels/sms/sms.queue';
 import { SmsProcessor } from './channels/sms/sms.processor';
 
@@ -27,6 +28,8 @@ import { SmsProcessor } from './channels/sms/sms.processor';
     PrismaModule,
     HttpModule,
     RedisQueueModule,
+    NotificationsModule,
+    AuditLogModule,
     BullModule.registerQueue(
       { name: 'sms' },
       { name: 'email' },

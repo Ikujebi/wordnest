@@ -1,10 +1,19 @@
+// src/super-admin/super-admin.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { Role } from '@prisma/client';
+
+import { PrismaService } from '../../../prisma/prisma.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { AuditAction } from '../audit-log/enums/audit-action.enum';
+import { NotificationService } from '../notifications/notification.service';
 
 @Injectable()
 export class SuperAdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogService: AuditLogService,
+    private readonly notificationsService: NotificationService,
+  ) {}
 
   // ==========================================
   //          GLOBAL DASHBOARD METHODS
@@ -13,13 +22,17 @@ export class SuperAdminService {
   async getDashboardStats() {
     const now = new Date();
 
-    // Time boundary definitions (UTC)
-    const startOfCurrentMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const startOfPreviousMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-    const sixMonthsAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
+    const startOfCurrentMonth = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const startOfPreviousMonth = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
+    );
+    const sixMonthsAgo = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1),
+    );
 
     const [
-      // --- OVERVIEW COUNTS ---
       totalMembers,
       activeWorkers,
       totalAdmins,
@@ -29,64 +42,43 @@ export class SuperAdminService {
       unreadMessages,
       pendingPrayerRequests,
       currentMonthlyGiving,
-
-      // --- PRIOR MONTH COUNTS (For Growth Calculations) ---
       prevMembersCount,
       prevWorkersCount,
       prevGivingSum,
       prevEventsCount,
-
-      // --- HISTORICAL CHART DATA ---
       membersChartRaw,
       givingChartRaw,
       attendanceChartRaw,
-
-      // --- RECENT ACTIVITIES ---
       auditLogs,
       latestMembers,
       latestPrayerRequests,
       latestMessages,
       latestEvents,
     ] = await Promise.all([
-      // 1. Total Members
       this.prisma.member.count({ where: { deletedAt: null } }),
-
-      // 2. Active Workers
       this.prisma.member.count({ where: { isWorker: true, deletedAt: null } }),
-
-      // 3. Total Admins
       this.prisma.user.count({
-        where: { role: { in: [Role.ADMIN, Role.SUPER_ADMIN] }, deletedAt: null },
+        where: {
+          role: { in: [Role.ADMIN, Role.SUPER_ADMIN] },
+          deletedAt: null,
+        },
       }),
-
-      // 4. Total Departments
       this.prisma.department.count({ where: { deletedAt: null } }),
-
-      // 5. Total Events
       this.prisma.event.count({ where: { deletedAt: null } }),
-
-      // 6. Total Sermons
       this.prisma.sermon.count({ where: { deletedAt: null } }),
-
-      // 7. Unread Messages
-      this.prisma.contactMessage.count({ where: { isRead: false, deletedAt: null } }),
-
-      // 8. Pending Prayer Requests
-      this.prisma.prayerRequest.count({ where: { status: 'PENDING', deletedAt: null } }),
-
-      // 9. Current Month Giving Sum
+      this.prisma.contactMessage.count({
+        where: { isRead: false, deletedAt: null },
+      }),
+      this.prisma.prayerRequest.count({
+        where: { status: 'PENDING', deletedAt: null },
+      }),
       this.prisma.giving.aggregate({
         _sum: { amount: true },
         where: { createdAt: { gte: startOfCurrentMonth }, deletedAt: null },
       }),
-
-      // --- GROWTH BENCHMARKS ---
-      // 10. Members prior to current month
       this.prisma.member.count({
         where: { createdAt: { lt: startOfCurrentMonth }, deletedAt: null },
       }),
-
-      // 11. Workers prior to current month
       this.prisma.member.count({
         where: {
           isWorker: true,
@@ -94,8 +86,6 @@ export class SuperAdminService {
           deletedAt: null,
         },
       }),
-
-      // 12. Giving sum in previous month
       this.prisma.giving.aggregate({
         _sum: { amount: true },
         where: {
@@ -103,30 +93,21 @@ export class SuperAdminService {
           deletedAt: null,
         },
       }),
-
-      // 13. Events prior to current month
       this.prisma.event.count({
         where: { createdAt: { lt: startOfCurrentMonth }, deletedAt: null },
       }),
-
-      // --- CHARTS DATA ---
-      // 14. Monthly Member Signups (Last 6 Months)
       this.prisma.member.groupBy({
         by: ['createdAt'],
         _count: { _all: true },
         where: { createdAt: { gte: sixMonthsAgo }, deletedAt: null },
         orderBy: { createdAt: 'asc' },
       }),
-
-      // 15. Monthly Giving Totals (Last 6 Months)
       this.prisma.giving.groupBy({
         by: ['createdAt'],
         _sum: { amount: true },
         where: { createdAt: { gte: sixMonthsAgo }, deletedAt: null },
         orderBy: { createdAt: 'asc' },
       }),
-
-      // 16. Event Attendance (Recent completed/past events)
       this.prisma.event.findMany({
         take: 6,
         where: { startDate: { lte: now }, deletedAt: null },
@@ -138,9 +119,6 @@ export class SuperAdminService {
           _count: { select: { attendances: true } },
         },
       }),
-
-      // --- RECENT LISTS ---
-      // 17. Recent Audit Logs
       this.prisma.auditLog.findMany({
         take: 5,
         orderBy: { createdAt: 'desc' },
@@ -153,8 +131,6 @@ export class SuperAdminService {
           user: { select: { fullName: true } },
         },
       }),
-
-      // 18. Latest Members
       this.prisma.member.findMany({
         take: 5,
         where: { deletedAt: null },
@@ -167,8 +143,6 @@ export class SuperAdminService {
           createdAt: true,
         },
       }),
-
-      // 19. Latest Prayer Requests
       this.prisma.prayerRequest.findMany({
         take: 5,
         where: { deletedAt: null },
@@ -181,8 +155,6 @@ export class SuperAdminService {
           createdAt: true,
         },
       }),
-
-      // 20. Latest Contact Messages
       this.prisma.contactMessage.findMany({
         take: 5,
         where: { deletedAt: null },
@@ -195,8 +167,6 @@ export class SuperAdminService {
           createdAt: true,
         },
       }),
-
-      // 21. Latest/Upcoming Events
       this.prisma.event.findMany({
         take: 5,
         where: { deletedAt: null },
@@ -210,7 +180,6 @@ export class SuperAdminService {
       }),
     ]);
 
-    // Helper: Compute Percentage Growth
     const computeGrowth = (current: number, previous: number): number => {
       if (previous === 0) return current > 0 ? 100 : 0;
       return Number((((current - previous) / previous) * 100).toFixed(1));
@@ -218,10 +187,6 @@ export class SuperAdminService {
 
     const currentGivingVal = Number(currentMonthlyGiving._sum.amount ?? 0);
     const prevGivingVal = Number(prevGivingSum._sum.amount ?? 0);
-
-    const memberGrowthVal = totalMembers - prevMembersCount;
-    const workerGrowthVal = activeWorkers - prevWorkersCount;
-    const eventGrowthVal = totalEvents - prevEventsCount;
 
     return {
       overview: {
@@ -235,14 +200,12 @@ export class SuperAdminService {
         unreadMessages,
         pendingPrayerRequests,
       },
-
       growth: {
         members: computeGrowth(totalMembers, prevMembersCount),
         workers: computeGrowth(activeWorkers, prevWorkersCount),
         giving: computeGrowth(currentGivingVal, prevGivingVal),
         events: computeGrowth(totalEvents, prevEventsCount),
       },
-
       charts: {
         monthlyMembers: this.groupDataByMonth(membersChartRaw, '_count'),
         monthlyGiving: this.groupDataByMonth(givingChartRaw, '_sum'),
@@ -253,7 +216,6 @@ export class SuperAdminService {
           count: e._count.attendances,
         })),
       },
-
       recent: {
         auditLogs,
         latestMembers,
@@ -264,12 +226,11 @@ export class SuperAdminService {
     };
   }
 
-  // Helper method to bucket raw aggregate timestamps into "YYYY-MM"
   private groupDataByMonth(data: any[], countOrSumKey: '_count' | '_sum') {
     const monthlyMap = new Map<string, number>();
 
     for (const item of data) {
-      const monthKey = new Date(item.createdAt).toISOString().substring(0, 7); // "YYYY-MM"
+      const monthKey = new Date(item.createdAt).toISOString().substring(0, 7);
       const val =
         countOrSumKey === '_count'
           ? item._count._all ?? 1
@@ -332,7 +293,9 @@ export class SuperAdminService {
     });
 
     if (!user || user.deletedAt) {
-      throw new NotFoundException(`User with ID ${userId} does not exist or has been removed.`);
+      throw new NotFoundException(
+        `User with ID ${userId} does not exist or has been removed.`,
+      );
     }
 
     return user;
@@ -356,13 +319,21 @@ export class SuperAdminService {
     });
   }
 
-  async updateIndividualStatus(userId: string, data: { role?: Role; isActive?: boolean }) {
-    const userExists = await this.prisma.user.findUnique({ where: { id: userId } });
+  async updateIndividualStatus(
+    performingAdminId: string,
+    userId: string,
+    data: { role?: Role; isActive?: boolean },
+  ) {
+    const userExists = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
     if (!userExists || userExists.deletedAt) {
       throw new NotFoundException('Target individual not found.');
     }
 
-    return this.prisma.user.update({
+    // 1. Update User Record
+    const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data,
       select: {
@@ -372,5 +343,36 @@ export class SuperAdminService {
         isActive: true,
       },
     });
+
+    // 2. Trigger Audit Log via AuditLogService.createLog
+    await this.auditLogService.createLog(
+      { id: performingAdminId },
+      {
+        action: AuditAction.UPDATE_USER,
+        entity: 'USER',
+        entityId: userId,
+        description: `Updated status for user ${userId}`,
+        oldValues: { role: userExists.role, isActive: userExists.isActive },
+        newValues: data,
+      },
+    );
+
+    // 3. Trigger Notification via NotificationService.notify
+    await this.notificationsService.notify(userId, {
+      title: 'Account Status Updated',
+      message: `Your account details were updated by an administrator. Role: ${
+        data.role ?? userExists.role
+      }, Status: ${
+        data.isActive !== undefined
+          ? data.isActive
+            ? 'Active'
+            : 'Inactive'
+          : userExists.isActive
+          ? 'Active'
+          : 'Inactive'
+      }`,
+    });
+
+    return updatedUser;
   }
 }

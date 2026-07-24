@@ -9,6 +9,8 @@ import {
 import { Prisma, Role } from '@prisma/client';
 import { ContactRepository } from './contact.repository';
 import { NotificationService } from '../notifications/notification.service';
+import { AuditLogService } from '../audit-log/audit-log.service'; // Adjust path as needed
+import { AuditAction } from '../audit-log/enums/audit-action.enum'; // Adjust path as needed
 
 @Injectable()
 export class ContactService {
@@ -17,6 +19,7 @@ export class ContactService {
   constructor(
     private readonly contactRepository: ContactRepository,
     private readonly notificationService: NotificationService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   /**
@@ -110,7 +113,20 @@ export class ContactService {
     }
 
     try {
-      return await this.contactRepository.update(id, data);
+      const updated = await this.contactRepository.update(id, data);
+
+      await this.auditLogService.createLog(
+        {},
+        {
+          action: AuditAction.UPDATE,
+          entity: 'ContactMessage',
+          entityId: id,
+          description: `Updated contact message from ${updated.fullName || updated.email}`,
+          newValues: updated,
+        },
+      );
+
+      return updated;
     } catch (error) {
       this.logger.error(`Failed updating contact ${id}`, error);
       throw new InternalServerErrorException(
@@ -130,27 +146,54 @@ export class ContactService {
     }
 
     try {
-      return await this.contactRepository.update(id, {
+      const updated = await this.contactRepository.update(id, {
         assignedTo: { connect: { id: assignedToId } },
       });
+
+      await this.auditLogService.createLog(
+        {},
+        {
+          action: AuditAction.ASSIGN_CONTACT_MESSAGE,
+          entity: 'ContactMessage',
+          entityId: id,
+          description: `Assigned contact message from "${updated.fullName || updated.email}" to admin user ${assignedToId}`,
+          newValues: { assignedToId },
+        },
+      );
+
+      return updated;
     } catch (error) {
       this.logger.error(`Failed assigning contact ${id}`, error);
       throw new InternalServerErrorException('Unable to assign contact message');
     }
   }
 
-/**
- * Resolve contact message
- */
-async resolve(id: string, assignedToId?: string) {
-  const exists = await this.contactRepository.exists(id);
+  /**
+   * Resolve contact message
+   */
+  async resolve(id: string, assignedToId?: string) {
+    const exists = await this.contactRepository.exists(id);
 
-  if (!exists) {
-    throw new NotFoundException('Contact message not found');
+    if (!exists) {
+      throw new NotFoundException('Contact message not found');
+    }
+
+    const resolved = await this.contactRepository.resolve(id, assignedToId);
+
+    await this.auditLogService.createLog(
+      {},
+      {
+        action: AuditAction.RESOLVE_CONTACT_MESSAGE,
+        entity: 'ContactMessage',
+        entityId: id,
+        description: `Resolved contact message ${id}`,
+        newValues: { status: 'RESOLVED', assignedToId },
+      },
+    );
+
+    return resolved;
   }
 
-  return this.contactRepository.resolve(id, assignedToId);
-}
   /**
    * Reopen/unresolve contact message
    */
@@ -161,7 +204,20 @@ async resolve(id: string, assignedToId?: string) {
       throw new NotFoundException('Contact message not found');
     }
 
-    return this.contactRepository.unresolve(id);
+    const unresolved = await this.contactRepository.unresolve(id);
+
+    await this.auditLogService.createLog(
+      {},
+      {
+        action: AuditAction.UPDATE,
+        entity: 'ContactMessage',
+        entityId: id,
+        description: `Reopened/unresolved contact message ${id}`,
+        newValues: { status: 'OPEN' },
+      },
+    );
+
+    return unresolved;
   }
 
   /**
@@ -174,7 +230,19 @@ async resolve(id: string, assignedToId?: string) {
       throw new NotFoundException('Contact message not found');
     }
 
-    return this.contactRepository.softDelete(id);
+    const deleted = await this.contactRepository.softDelete(id);
+
+    await this.auditLogService.createLog(
+      {},
+      {
+        action: AuditAction.DELETE,
+        entity: 'ContactMessage',
+        entityId: id,
+        description: `Soft deleted contact message ${id}`,
+      },
+    );
+
+    return deleted;
   }
 
   /**
@@ -182,7 +250,19 @@ async resolve(id: string, assignedToId?: string) {
    */
   async deletePermanent(id: string) {
     try {
-      return await this.contactRepository.deletePermanent(id);
+      const result = await this.contactRepository.deletePermanent(id);
+
+      await this.auditLogService.createLog(
+        {},
+        {
+          action: AuditAction.DELETE,
+          entity: 'ContactMessage',
+          entityId: id,
+          description: `Permanently deleted contact message ${id}`,
+        },
+      );
+
+      return result;
     } catch (error) {
       this.logger.error(`Failed permanently deleting contact ${id}`, error);
       throw new InternalServerErrorException(
@@ -196,7 +276,19 @@ async resolve(id: string, assignedToId?: string) {
    */
   async restore(id: string) {
     try {
-      return await this.contactRepository.restore(id);
+      const restored = await this.contactRepository.restore(id);
+
+      await this.auditLogService.createLog(
+        {},
+        {
+          action: AuditAction.UPDATE,
+          entity: 'ContactMessage',
+          entityId: id,
+          description: `Restored soft-deleted contact message ${id}`,
+        },
+      );
+
+      return restored;
     } catch (error) {
       this.logger.error(`Failed restoring contact ${id}`, error);
       throw new InternalServerErrorException('Unable to restore contact');
@@ -215,16 +307,28 @@ async resolve(id: string, assignedToId?: string) {
     }
   }
 
-/**
- * Bulk resolve contacts
- */
-async bulkResolve(ids: string[], assignedToId?: string) {
-  if (!ids || !ids.length) {
-    throw new BadRequestException('No contact IDs provided');
-  }
+  /**
+   * Bulk resolve contacts
+   */
+  async bulkResolve(ids: string[], assignedToId?: string) {
+    if (!ids || !ids.length) {
+      throw new BadRequestException('No contact IDs provided');
+    }
 
-  return this.contactRepository.bulkResolve(ids, assignedToId);
-}
+    const result = await this.contactRepository.bulkResolve(ids, assignedToId);
+
+    await this.auditLogService.createLog(
+      {},
+      {
+        action: AuditAction.RESOLVE_CONTACT_MESSAGE,
+        entity: 'ContactMessage',
+        description: `Bulk resolved ${ids.length} contact messages`,
+        newValues: { ids, assignedToId },
+      },
+    );
+
+    return result;
+  }
 
   /**
    * Bulk soft delete contacts
@@ -234,7 +338,19 @@ async bulkResolve(ids: string[], assignedToId?: string) {
       throw new BadRequestException('No contact IDs provided');
     }
 
-    return this.contactRepository.bulkDelete(ids);
+    const result = await this.contactRepository.bulkDelete(ids);
+
+    await this.auditLogService.createLog(
+      {},
+      {
+        action: AuditAction.DELETE,
+        entity: 'ContactMessage',
+        description: `Bulk soft-deleted ${ids.length} contact messages`,
+        newValues: { ids },
+      },
+    );
+
+    return result;
   }
 
   /**
@@ -246,7 +362,19 @@ async bulkResolve(ids: string[], assignedToId?: string) {
     }
 
     try {
-      return await this.contactRepository.bulkRestore(ids);
+      const result = await this.contactRepository.bulkRestore(ids);
+
+      await this.auditLogService.createLog(
+        {},
+        {
+          action: AuditAction.UPDATE,
+          entity: 'ContactMessage',
+          description: `Bulk restored ${ids.length} contact messages`,
+          newValues: { ids },
+        },
+      );
+
+      return result;
     } catch (error) {
       this.logger.error('Failed bulk restoring contacts', error);
       throw new InternalServerErrorException('Unable to bulk restore contacts');

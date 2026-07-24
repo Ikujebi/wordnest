@@ -1,8 +1,7 @@
 import { Module } from '@nestjs/common';
-import { EventsService } from './events.service';
-import { EventsController } from './events.controller';
+import { WorkerService } from './worker.service';
+import { WorkerController } from './worker.controller';
 import { PrismaModule } from '../../prisma/prisma.module';
-
 import { NotificationsModule } from '../notifications/notification.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 
@@ -12,8 +11,8 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
     NotificationsModule,
     AuditLogModule,
   ],
-  controllers: [EventsController],
-  providers: [EventsService],
-  exports: [EventsService],
+  controllers: [WorkerController],
+  providers: [WorkerService],
+  exports: [WorkerService],
 })
-export class EventsModule {}
+export class WorkerModule {}

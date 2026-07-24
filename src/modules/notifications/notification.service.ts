@@ -37,7 +37,17 @@ export class NotificationService {
   // ===========================================================================
   // TARGETED NOTIFICATION DISPATCHERS
   // ===========================================================================
-
+  /** Generic single-user notification dispatcher */
+async notify(
+  userId: string,
+  data: Omit<CreateNotificationDto, 'userId'>,
+) {
+  return this.create({
+    ...data,
+    userId,
+    type: data.type ?? NotificationType.SYSTEM,
+  });
+}
   /** Send targeted notification to a specific single member */
   async notifyMember(memberId: string, data: Omit<CreateNotificationDto, 'userId'>) {
     const member = await this.prisma.member.findUnique({
@@ -55,7 +65,14 @@ export class NotificationService {
       type: data.type ?? NotificationType.SYSTEM,
     });
   }
-
+async notifyMany(
+    userIds: string[],
+    title: string,
+    message: string,
+    type: NotificationType = NotificationType.SYSTEM,
+  ) {
+    return this.broadcastToUsers(userIds, { title, message, type });
+  }
   /** Send targeted notification to multiple members by memberIds */
   async notifyMembers(memberIds: string[], data: Omit<CreateNotificationDto, 'userId'>) {
     const members = await this.prisma.member.findMany({
@@ -495,4 +512,5 @@ export class NotificationService {
     const err = error instanceof Error ? error : new Error(String(error));
     this.logger.error(message, err.stack);
   }
+  
 }

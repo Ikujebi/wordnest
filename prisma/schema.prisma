@@ -386,7 +386,7 @@ model WorkerAttendance {
 
 model LeadershipClass {
   id            String                 @id @default(dbgenerated("(gen_random_uuid())::text"))
-  title         String
+  name         String
   description   String?
   level         LeadershipLevel        @default(BASIC)
   startDate     DateTime?              @db.Timestamptz(6)
@@ -664,6 +664,9 @@ enum NotificationType {
   SERMON
   ANNOUNCEMENT
   PRAYER
+  WARNING
+  INFO
+  SUCCESS
 }
 
 enum PaymentMethod {
