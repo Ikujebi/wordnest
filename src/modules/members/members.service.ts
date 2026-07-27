@@ -13,14 +13,83 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 // Note: Ensure NotificationService and NotificationType are imported correctly
 import { NotificationService } from '../notifications/notification.service';
 
+/* Return shape expected by your BirthdaysWidget frontend component */
+export interface BirthdayMemberDto {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  timing: 'today' | 'tomorrow';
+  dateOfBirth?: string;
+}
+
 @Injectable()
 export class MembersService {
   private readonly logger = new Logger(MembersService.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService, // 👈 Added missing injection
+    private readonly notificationService: NotificationService,
   ) {}
+
+  /**
+   * Fetch members whose birthday falls on today or tomorrow (excluding soft-deleted members).
+   */
+  async getUpcomingBirthdays(): Promise<BirthdayMemberDto[]> {
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+
+    const todayMonth = today.getMonth() + 1; // JS months are 0-indexed
+    const todayDay = today.getDate();
+
+    const tomorrowMonth = tomorrow.getMonth() + 1;
+    const tomorrowDay = tomorrow.getDate();
+
+    try {
+      // Query Postgres for matching Month/Day, filtering out soft-deleted members
+      const rawMembers = await this.prisma.$queryRaw<
+        Array<{
+          id: string;
+          firstName: string;
+          lastName: string;
+          avatarUrl: string | null;
+          dateOfBirth: Date;
+        }>
+      >`
+        SELECT id, "firstName", "lastName", "avatarUrl", "dateOfBirth"
+        FROM "Member"
+        WHERE "deletedAt" IS NULL
+          AND "dateOfBirth" IS NOT NULL
+          AND (
+            (EXTRACT(MONTH FROM "dateOfBirth") = ${todayMonth} AND EXTRACT(DAY FROM "dateOfBirth") = ${todayDay})
+            OR
+            (EXTRACT(MONTH FROM "dateOfBirth") = ${tomorrowMonth} AND EXTRACT(DAY FROM "dateOfBirth") = ${tomorrowDay})
+          );
+      `;
+
+      return rawMembers.map((member) => {
+        const dob = new Date(member.dateOfBirth);
+        const isToday =
+          dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay;
+
+        return {
+          id: member.id,
+          name: `${member.firstName || ''} ${member.lastName || ''}`.trim(),
+          avatarUrl: member.avatarUrl,
+          timing: isToday ? 'today' : 'tomorrow',
+          dateOfBirth: member.dateOfBirth.toISOString(),
+        };
+      });
+    } catch (error) {
+      this.logger.error(
+        'Failed to fetch upcoming birthdays',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException(
+        'Unable to retrieve upcoming birthdays.',
+      );
+    }
+  }
 
   async createMemberProfile(
     userId: string,
