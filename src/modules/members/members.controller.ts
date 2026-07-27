@@ -24,4 +24,13 @@ export class MembersController {
   async updateMyProfile(@Req() req: any, @Body() updateMemberDto: UpdateMemberDto) {
     return this.membersService.updateMemberProfile(req.user.id, updateMemberDto);
   }
+
+  /**
+   * Fetch members with upcoming birthdays (today or tomorrow)
+   * Route: GET /members/birthdays
+   */
+  @Get('birthdays')
+  async getUpcomingBirthdays() {
+    return this.membersService.getUpcomingBirthdays();
+  }
 }
