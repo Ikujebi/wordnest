@@ -170,6 +170,8 @@ model Member {
 model Department {
   id          String             @id @default(dbgenerated("(gen_random_uuid())::text"))
   name        String             @unique
+  metrics     DepartmentMetric[]
+  entries     DepartmentMetricEntry[]
   slug        String             @unique
   description String?
   leaderId    String?
@@ -183,7 +185,40 @@ model Department {
   workers     Worker[]
   trainees    WorkerInTraining[]
 }
+model DepartmentMetric {
+  id           String   @id @default(uuid())
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  
+  title        String   // e.g., "Weekly Attendance Target", "Worker Conversion"
+  weight       Float    // Weight towards 100% total (e.g., 40 for 40%)
+  targetValue  Float    // Expected 100% mark (e.g., 50 members)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  entries      DepartmentMetricEntry[]
+}
 
+model DepartmentMetricEntry {
+  id             String           @id @default(uuid())
+
+  departmentId   String
+  department     Department       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  metricId       String
+  metric         DepartmentMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+
+  achievedValue  Float
+  period         String
+
+  createdAt      DateTime @default(now())
+
+  @@unique([departmentId, metricId, period])
+  @@index([departmentId])
+  @@index([metricId])
+  @@index([period])
+}
 model DepartmentMember {
   id              String             @id @default(dbgenerated("(gen_random_uuid())::text"))
   memberId        String

@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
@@ -11,6 +12,9 @@ import { Department, DepartmentMember, Prisma, NotificationType } from '@prisma/
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { AddDepartmentMemberDto } from './dto/add-department-member.dto';
 import { UpdateDepartmentMemberDto } from './dto/update-department-member.dto';
+import { DepartmentPerformanceDto } from './dto/department-performance.dto';
+import { CreateDepartmentMetricDto } from './dto/create-department-metric.dto';
+import { RecordMetricEntryDto } from './dto/record-metric-entry.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
@@ -223,5 +227,245 @@ export class DepartmentsService {
       );
       throw new InternalServerErrorException('Roster management update failed.');
     }
+  }
+
+  /**
+   * Configures custom evaluation metrics for a specific department (Super-Admin only).
+   * Validates that total weights equal exactly 100%.
+   */
+  async setDepartmentMetrics(
+    departmentId: string,
+    metrics: CreateDepartmentMetricDto[],
+    adminId: string,
+  ) {
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId, deletedAt: null },
+    });
+
+    if (!department) {
+      throw new NotFoundException('Department not found.');
+    }
+
+    const totalWeight = metrics.reduce((sum, m) => sum + m.weight, 0);
+    if (totalWeight !== 100) {
+      throw new BadRequestException(
+        `Total weight of department metrics must equal 100%. Provided total: ${totalWeight}%.`,
+      );
+    }
+
+    try {
+      const createdMetrics = await this.prisma.$transaction(async (tx) => {
+        await tx.departmentMetric.deleteMany({ where: { departmentId } });
+        
+        return Promise.all(
+          metrics.map((m) =>
+            tx.departmentMetric.create({
+              data: {
+                title: m.title,
+                weight: m.weight,
+                targetValue: m.targetValue,
+                departmentId,
+              },
+            }),
+          ),
+        );
+      });
+
+      await this.auditLogService.createLog(
+        { id: adminId },
+        {
+          action: AuditAction.UPDATE_DEPARTMENT,
+          entity: 'DepartmentMetric',
+          entityId: departmentId,
+          description: `Super Admin configured ${metrics.length} dynamic metrics for department "${department.name}".`,
+          newValues: createdMetrics,
+        },
+      );
+
+      return createdMetrics;
+    } catch (error) {
+      this.logger.error(
+        `Failed setting metrics for department ID: ${departmentId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException('Failed to set department evaluation metrics.');
+    }
+  }
+
+  /**
+   * Logs or updates achieved metric performance entries for a department for a specified evaluation period.
+   */
+  async recordMetricEntries(
+  departmentId: string,
+  entries: RecordMetricEntryDto[],
+  userId: string,
+) {
+  try {
+    const recorded = await this.prisma.$transaction(async (tx) => {
+      return Promise.all(
+        entries.map((entry) =>
+          tx.departmentMetricEntry.upsert({
+            where: {
+              departmentId_metricId_period: {
+                departmentId,
+                metricId: entry.metricId,
+                period: entry.period,
+              },
+            },
+            update: {
+              achievedValue: entry.achievedValue,
+            },
+            create: {
+              departmentId,
+              metricId: entry.metricId,
+              period: entry.period,
+              achievedValue: entry.achievedValue,
+            },
+          }),
+        ),
+      );
+    });
+
+    await this.auditLogService.createLog(
+      { id: userId },
+      {
+        action: AuditAction.UPDATE_DEPARTMENT,
+        entity: 'DepartmentMetricEntry',
+        entityId: departmentId,
+        description: `Recorded ${entries.length} performance metric entries for department ID ${departmentId}.`,
+        newValues: recorded,
+      },
+    );
+
+    return recorded;
+  } catch (error) {
+    this.logger.error(
+      `Failed recording metric entries for department ID: ${departmentId}`,
+      error instanceof Error ? error.stack : String(error),
+    );
+    throw new InternalServerErrorException('Failed to record metric entries.');
+  }
+}
+
+  /**
+   * Calculates performance percentage across active departments.
+   * Fallbacks dynamically to custom metrics if defined, or uses the standard formula (70% Workers + 30% Trainees).
+   */
+  async getPerformance(period?: string): Promise<DepartmentPerformanceDto[]> {
+    const activePeriod = period || '2026-Q3';
+
+    const departments = await this.prisma.department.findMany({
+      where: {
+        deletedAt: null,
+      },
+      include: {
+        leader: {
+          select: {
+            firstName: true,
+            lastName: true,
+          },
+        },
+        members: {
+          where: {
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+        workers: {
+          where: {
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            isActive: true,
+          },
+        },
+        trainees: {
+          where: {
+            deletedAt: null,
+            isActive: true,
+          },
+          select: {
+            id: true,
+          },
+        },
+        metrics: {
+          include: {
+            entries: {
+              where: {
+                period: activePeriod,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    });
+
+    return departments.map((department) => {
+      const totalMembers = department.members.length;
+
+      const activeMembers = department.members.filter(
+        (member) => member.status === 'ACTIVE',
+      ).length;
+
+      const inactiveMembers = department.members.filter(
+        (member) => member.status !== 'ACTIVE',
+      ).length;
+
+      const workers = department.workers.filter(
+        (worker) => worker.isActive,
+      ).length;
+
+      const trainees = department.trainees.length;
+
+      let completionRate = 0;
+
+      // Check if custom Super-Admin metrics are defined
+      if (department.metrics && department.metrics.length > 0) {
+        let dynamicScore = 0;
+
+        department.metrics.forEach((metric) => {
+          const entry = metric.entries[0];
+          const achieved = entry ? entry.achievedValue : 0;
+          const performanceRatio = Math.min(achieved / metric.targetValue, 1);
+          dynamicScore += performanceRatio * metric.weight;
+        });
+
+        completionRate = Math.round(dynamicScore);
+      } else {
+        // Fallback: Default Operational Formula (70% Workers + 30% Trainees)
+        const workerScore =
+          activeMembers === 0
+            ? 0
+            : Math.min((workers / activeMembers) * 70, 70);
+
+        const trainingScore =
+          activeMembers === 0
+            ? 0
+            : Math.min((trainees / activeMembers) * 30, 30);
+
+        completionRate = Math.round(workerScore + trainingScore);
+      }
+
+      return {
+        id: department.id,
+        name: department.name,
+        leader: department.leader
+          ? `${department.leader.firstName} ${department.leader.lastName}`
+          : null,
+        totalMembers,
+        activeMembers,
+        inactiveMembers,
+        workers,
+        trainees,
+        completionRate: Math.min(completionRate, 100),
+      };
+    });
   }
 }
