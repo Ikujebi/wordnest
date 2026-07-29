@@ -85,8 +85,7 @@ export class DepartmentsService {
       throw new InternalServerErrorException('An unexpected database error occurred.');
     }
   }
-
-  /**
+/**
    * Lists all active departments.
    */
   async findAll(): Promise<Department[]> {
@@ -99,6 +98,24 @@ export class DepartmentsService {
     });
   }
 
+  /**
+   * Retrieves a single department by ID, with leader and member count.
+   */
+  async findOne(id: string): Promise<Department> {
+    const department = await this.prisma.department.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        leader: true,
+        _count: { select: { members: true } },
+      },
+    });
+
+    if (!department) {
+      throw new NotFoundException('Department not found.');
+    }
+
+    return department;
+  }
   /**
    * Assigns an existing active department member as the department leader.
    */

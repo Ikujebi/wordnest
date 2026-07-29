@@ -39,11 +39,13 @@ export class DepartmentsController {
   }
 
   @Get()
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   async getDepartments() {
     return this.departmentsService.findAll();
   }
 
   @Get('performance')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   async getDepartmentPerformance(@Query('period') period?: string) {
     return this.departmentsService.getPerformance(period);
   }
@@ -138,5 +140,16 @@ export class DepartmentsController {
       entries,
       req.user.id,
     );
+  }
+
+  /**
+   * Retrieves a single department by ID.
+   * IMPORTANT: this must stay the LAST @Get route in the class — ':id' is a
+   * catch-all pattern and would otherwise shadow 'performance' and ':id/members'.
+   */
+  @Get(':id')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  async getDepartment(@Param('id', ParseUUIDPipe) id: string) {
+    return this.departmentsService.findOne(id);
   }
 }
