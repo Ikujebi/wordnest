@@ -16,6 +16,7 @@ import { DepartmentsService } from './departments.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { AddDepartmentMemberDto } from './dto/add-department-member.dto';
 import { UpdateDepartmentMemberDto } from './dto/update-department-member.dto';
+import { AssignDepartmentLeaderDto } from './dto/assign-department-leader.dto';
 import { CreateDepartmentMetricDto } from './dto/create-department-metric.dto';
 import { RecordMetricEntryDto } from './dto/record-metric-entry.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -45,6 +46,34 @@ export class DepartmentsController {
   @Get('performance')
   async getDepartmentPerformance(@Query('period') period?: string) {
     return this.departmentsService.getPerformance(period);
+  }
+
+  /**
+   * Assigns an active department member as the department leader.
+   */
+  @Patch(':id/leader')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  async assignDepartmentLeader(
+    @Param('id', ParseUUIDPipe) departmentId: string,
+    @Req() req: any,
+    @Body() dto: AssignDepartmentLeaderDto,
+  ) {
+    return this.departmentsService.assignLeader(
+      departmentId,
+      dto,
+      req.user.id,
+    );
+  }
+
+  /**
+   * Lists active roster members of a department (e.g. for leader assignment dropdowns).
+   */
+  @Get(':id/members')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  async getDepartmentMembers(
+    @Param('id', ParseUUIDPipe) departmentId: string,
+  ) {
+    return this.departmentsService.getDepartmentMembers(departmentId);
   }
 
   @Post(':id/members')

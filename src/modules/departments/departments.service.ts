@@ -8,10 +8,11 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Department, DepartmentMember, Prisma, NotificationType } from '@prisma/client';
+import { Department, DepartmentMember, DepartmentRole, Prisma, NotificationType } from '@prisma/client';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { AddDepartmentMemberDto } from './dto/add-department-member.dto';
 import { UpdateDepartmentMemberDto } from './dto/update-department-member.dto';
+import { AssignDepartmentLeaderDto } from './dto/assign-department-leader.dto';
 import { DepartmentPerformanceDto } from './dto/department-performance.dto';
 import { CreateDepartmentMetricDto } from './dto/create-department-metric.dto';
 import { RecordMetricEntryDto } from './dto/record-metric-entry.dto';
@@ -96,6 +97,121 @@ export class DepartmentsService {
         _count: { select: { members: true } },
       },
     });
+  }
+
+  /**
+   * Assigns an existing active department member as the department leader.
+   */
+  async assignLeader(
+    departmentId: string,
+    dto: AssignDepartmentLeaderDto,
+    updaterId: string,
+  ): Promise<Department> {
+    const { leaderId } = dto;
+
+    // 1. Verify department exists and is active
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId, deletedAt: null },
+      include: { leader: true },
+    });
+
+    if (!department) {
+      throw new NotFoundException('Department not found.');
+    }
+
+    // 2. Ensure the candidate member exists and belongs to this department
+    const candidateMember = await this.prisma.departmentMember.findUnique({
+      where: {
+        memberId_departmentId: {
+          memberId: leaderId,
+          departmentId,
+        },
+      },
+      include: {
+        member: true,
+      },
+    });
+
+    if (!candidateMember || candidateMember.deletedAt || candidateMember.status !== 'ACTIVE') {
+      throw new BadRequestException(
+        'The designated leader must be an active member of this department.',
+      );
+    }
+
+    try {
+      // 3. Execute updates in a transaction: update Department leaderId and update member roles
+      const updatedDepartment = await this.prisma.$transaction(async (tx) => {
+        // Demote previous leader's role in DepartmentMember if applicable
+        if (department.leaderId && department.leaderId !== leaderId) {
+          await tx.departmentMember.updateMany({
+            where: {
+              departmentId,
+              memberId: department.leaderId,
+              role: DepartmentRole.LEADER,
+            },
+            data: {
+              role: DepartmentRole.MEMBER,
+              updatedById: updaterId,
+            },
+          });
+        }
+
+        // Elevate new leader's department role to LEADER
+        await tx.departmentMember.update({
+          where: {
+            memberId_departmentId: {
+              memberId: leaderId,
+              departmentId,
+            },
+          },
+          data: {
+            role: DepartmentRole.LEADER,
+            updatedById: updaterId,
+          },
+        });
+
+        // Set leaderId on Department record
+        return tx.department.update({
+          where: { id: departmentId },
+          data: {
+            leaderId,
+            updatedById: updaterId,
+          },
+          include: {
+            leader: true,
+            members: true,
+          },
+        });
+      });
+
+      // 4. Audit Log
+      await this.auditLogService.createLog(
+        { id: updaterId },
+        {
+          action: AuditAction.UPDATE_DEPARTMENT,
+          entity: 'Department',
+          entityId: department.id,
+          description: `Assigned ${candidateMember.member.firstName} ${candidateMember.member.lastName} as leader of department "${department.name}".`,
+          oldValues: { leaderId: department.leaderId },
+          newValues: { leaderId: updatedDepartment.leaderId },
+        },
+      );
+
+      // 5. Real-Time Notification -> Notify new leader
+      await this.notificationService.notifyMember(leaderId, {
+        title: 'Department Leadership Assignment',
+        message: `You have been assigned as the Department Leader for ${department.name}.`,
+        type: NotificationType.SYSTEM,
+      });
+
+      return updatedDepartment;
+    } catch (error) {
+      this.logger.error(
+        `Failed to assign leader ${leaderId} to department ${departmentId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException('Failed to update department leader assignment.');
+    }
   }
 
   /**
@@ -256,7 +372,7 @@ export class DepartmentsService {
     try {
       const createdMetrics = await this.prisma.$transaction(async (tx) => {
         await tx.departmentMetric.deleteMany({ where: { departmentId } });
-        
+
         return Promise.all(
           metrics.map((m) =>
             tx.departmentMetric.create({
@@ -296,56 +412,56 @@ export class DepartmentsService {
    * Logs or updates achieved metric performance entries for a department for a specified evaluation period.
    */
   async recordMetricEntries(
-  departmentId: string,
-  entries: RecordMetricEntryDto[],
-  userId: string,
-) {
-  try {
-    const recorded = await this.prisma.$transaction(async (tx) => {
-      return Promise.all(
-        entries.map((entry) =>
-          tx.departmentMetricEntry.upsert({
-            where: {
-              departmentId_metricId_period: {
+    departmentId: string,
+    entries: RecordMetricEntryDto[],
+    userId: string,
+  ) {
+    try {
+      const recorded = await this.prisma.$transaction(async (tx) => {
+        return Promise.all(
+          entries.map((entry) =>
+            tx.departmentMetricEntry.upsert({
+              where: {
+                departmentId_metricId_period: {
+                  departmentId,
+                  metricId: entry.metricId,
+                  period: entry.period,
+                },
+              },
+              update: {
+                achievedValue: entry.achievedValue,
+              },
+              create: {
                 departmentId,
                 metricId: entry.metricId,
                 period: entry.period,
+                achievedValue: entry.achievedValue,
               },
-            },
-            update: {
-              achievedValue: entry.achievedValue,
-            },
-            create: {
-              departmentId,
-              metricId: entry.metricId,
-              period: entry.period,
-              achievedValue: entry.achievedValue,
-            },
-          }),
-        ),
+            }),
+          ),
+        );
+      });
+
+      await this.auditLogService.createLog(
+        { id: userId },
+        {
+          action: AuditAction.UPDATE_DEPARTMENT,
+          entity: 'DepartmentMetricEntry',
+          entityId: departmentId,
+          description: `Recorded ${entries.length} performance metric entries for department ID ${departmentId}.`,
+          newValues: recorded,
+        },
       );
-    });
 
-    await this.auditLogService.createLog(
-      { id: userId },
-      {
-        action: AuditAction.UPDATE_DEPARTMENT,
-        entity: 'DepartmentMetricEntry',
-        entityId: departmentId,
-        description: `Recorded ${entries.length} performance metric entries for department ID ${departmentId}.`,
-        newValues: recorded,
-      },
-    );
-
-    return recorded;
-  } catch (error) {
-    this.logger.error(
-      `Failed recording metric entries for department ID: ${departmentId}`,
-      error instanceof Error ? error.stack : String(error),
-    );
-    throw new InternalServerErrorException('Failed to record metric entries.');
+      return recorded;
+    } catch (error) {
+      this.logger.error(
+        `Failed recording metric entries for department ID: ${departmentId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException('Failed to record metric entries.');
+    }
   }
-}
 
   /**
    * Calculates performance percentage across active departments.
@@ -468,4 +584,37 @@ export class DepartmentsService {
       };
     });
   }
+  /**
+ * Lists active roster members of a department (for leader-assignment dropdowns, etc).
+ */
+async getDepartmentMembers(departmentId: string) {
+  const department = await this.prisma.department.findUnique({
+    where: { id: departmentId, deletedAt: null },
+  });
+
+  if (!department) {
+    throw new NotFoundException('Department not found.');
+  }
+
+  return this.prisma.departmentMember.findMany({
+    where: {
+      departmentId,
+      deletedAt: null,
+      status: 'ACTIVE',
+    },
+    include: {
+      member: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+        },
+      },
+    },
+    orderBy: {
+      member: { lastName: 'asc' },
+    },
+  });
+}
 }
