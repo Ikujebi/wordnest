@@ -619,4 +619,7 @@ export class CommunicationsService {
     await this.findOne(id);
     return this.statisticsService.getCommunicationStatistics(id);
   }
+  async dashboardOverview() {
+  return this.statisticsService.dashboardOverview();
+}
 }

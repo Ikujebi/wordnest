@@ -7,176 +7,133 @@ import {
   Delete,
   Param,
   Query,
+  Req,
   ParseUUIDPipe,
-  HttpCode,
-  HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 
 import { CommunicationsService } from './communications.service';
-
 import { CreateBroadcastDto } from './dto/create-broadcast.dto';
 import { UpdateBroadcastDto } from './dto/update-broadcast.dto';
 import { SendNewsletterDto } from './dto/send-newsletter.dto';
 import { SendNotificationDto } from './dto/send-notification.dto';
 import { CommunicationQueryDto } from './dto/communication-query.dto';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('communications')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class CommunicationsController {
-  constructor(
-    private readonly communicationsService: CommunicationsService,
-  ) {}
+  constructor(private readonly communicationsService: CommunicationsService) {}
 
-  /**
-   * Create a draft communication.
-   */
   @Post()
-  create(
-    @Body() dto: CreateBroadcastDto,
-  ) {
-    return this.communicationsService.create(dto);
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  create(@Req() req: any, @Body() dto: CreateBroadcastDto) {
+    // createdById is set from the authenticated user, never trusted from the body
+    return this.communicationsService.create({ ...dto, createdById: req.user.id });
   }
 
-  /**
-   * Get all communications.
-   */
   @Get()
-  findAll(
-    @Query() query: CommunicationQueryDto,
-  ) {
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  findAll(@Query() query: CommunicationQueryDto) {
     return this.communicationsService.findAll(query);
   }
 
-  /**
-   * Get communication by id.
-   */
+  @Get('dashboard')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  dashboardOverview() {
+    return this.communicationsService.dashboardOverview();
+  }
+
   @Get(':id')
-  findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.communicationsService.findOne(id);
   }
 
-  /**
-   * Update communication.
-   */
   @Patch(':id')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   update(
     @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
     @Body() dto: UpdateBroadcastDto,
   ) {
-    return this.communicationsService.update(id, dto);
+    return this.communicationsService.update(id, dto, req.user.id);
   }
 
-  /**
-   * Soft delete.
-   */
   @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  remove(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.communicationsService.remove(id);
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.communicationsService.remove(id, req.user.id);
   }
 
-  /**
-   * Send newsletter.
-   */
   @Post(':id/send-newsletter')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   sendNewsletter(
     @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
     @Body() dto: SendNewsletterDto,
   ) {
-    return this.communicationsService.sendNewsletter(id, dto);
+    return this.communicationsService.sendNewsletter(id, dto, req.user.id);
   }
 
-  /**
-   * Broadcast notification.
-   */
   @Post(':id/send')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   sendNotification(
     @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
     @Body() dto: SendNotificationDto,
   ) {
-    return this.communicationsService.sendNotification(id, dto);
+    return this.communicationsService.sendNotification(id, dto, req.user.id);
   }
 
-  /**
-   * Schedule communication.
-   */
   @Post(':id/schedule')
-  schedule(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.communicationsService.schedule(id);
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  schedule(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.communicationsService.schedule(id, req.user.id);
   }
 
-  /**
-   * Cancel scheduled communication.
-   */
   @Post(':id/cancel')
-  cancel(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.communicationsService.cancel(id);
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  cancel(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.communicationsService.cancel(id, req.user.id);
   }
 
-  /**
-   * Duplicate communication.
-   */
   @Post(':id/duplicate')
-  duplicate(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.communicationsService.duplicate(id);
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  duplicate(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.communicationsService.duplicate(id, req.user.id);
   }
 
-  /**
-   * Preview recipients.
-   */
   @Get(':id/recipients')
-  recipients(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  recipients(@Param('id', ParseUUIDPipe) id: string) {
     return this.communicationsService.previewRecipients(id);
   }
 
-  /**
-   * Delivery statistics.
-   */
   @Get(':id/statistics')
-  statistics(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  statistics(@Param('id', ParseUUIDPipe) id: string) {
     return this.communicationsService.statistics(id);
   }
 
-  /**
-   * Preview communication.
-   */
   @Get(':id/preview')
-  preview(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  preview(@Param('id', ParseUUIDPipe) id: string) {
     return this.communicationsService.preview(id);
   }
 
-  /**
-   * Restore deleted communication.
-   */
   @Patch(':id/restore')
-  restore(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.communicationsService.restore(id);
+  @Roles(Role.SUPER_ADMIN)
+  restore(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.communicationsService.restore(id, req.user.id);
   }
 
-  /**
-   * Archive communication.
-   */
   @Patch(':id/archive')
-  archive(
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.communicationsService.archive(id);
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  archive(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.communicationsService.archive(id, req.user.id);
   }
 }
