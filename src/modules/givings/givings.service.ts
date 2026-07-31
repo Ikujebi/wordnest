@@ -273,4 +273,68 @@ export class GivingsService {
 
     return metrics;
   }
+  /**
+   * Lists giving records with optional filtering and pagination.
+   */
+  async findAll(query: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    memberId?: string;
+    search?: string;
+  }) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.GivingWhereInput = { deletedAt: null };
+
+    if (query.type) {
+      where.type = query.type as any;
+    }
+
+    if (query.memberId) {
+      where.memberId = query.memberId;
+    }
+
+    if (query.search) {
+      where.OR = [
+        { reference: { contains: query.search, mode: 'insensitive' } },
+        {
+          member: {
+            OR: [
+              { firstName: { contains: query.search, mode: 'insensitive' } },
+              { lastName: { contains: query.search, mode: 'insensitive' } },
+              { email: { contains: query.search, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ];
+    }
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.giving.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          member: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      }),
+      this.prisma.giving.count({ where }),
+    ]);
+
+    return {
+      data: items,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
 }

@@ -338,4 +338,13 @@ export class EventsService {
 
     return eventData;
   }
+  /**
+   * Admin-facing: all active events regardless of publish state.
+   */
+  async findAllForAdmin(): Promise<Event[]> {
+    return this.prisma.event.findMany({
+      where: { deletedAt: null },
+      orderBy: { startDate: 'desc' },
+    });
+  }
 }
