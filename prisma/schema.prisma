@@ -675,6 +675,15 @@ model PrayerRequestNote {
   @@index([prayerRequestId])
   @@index([authorId])
 }
+model SystemSetting {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  key         String   @unique
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@index([key])
+}
 enum Gender {
   MALE
   FEMALE
