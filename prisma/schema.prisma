@@ -164,6 +164,8 @@ model Member {
   communicationRecipients CommunicationRecipient[]
   subscribers             Subscriber[]
   prayerRequests PrayerRequest[]
+  ledMinistries       Ministry[]        @relation("MinistryPrimaryLeader")
+  ministryMemberships MinistryMember[]
   @@index([lastName])
 }
 
@@ -378,13 +380,43 @@ model ContactMessage {
 model Ministry {
   id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   name        String    @unique
+  slug        String    @unique
   description String?
-  leaderId    String?   @unique
+  leaderId    String?
   deletedAt   DateTime? @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  leader      Worker?   @relation("MinistryLeader", fields: [leaderId], references: [id])
-  workers     Worker[]  @relation("MinistryWorkers")
+  createdById String?
+  updatedById String?
+
+  leader      Member?          @relation("MinistryPrimaryLeader", fields: [leaderId], references: [id])
+  members     MinistryMember[]
+  workers     Worker[]         @relation("MinistryWorkers")
+
+  @@index([leaderId])
+}
+
+model MinistryMember {
+  id          String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  memberId    String
+  ministryId  String
+  roleTitle   String           @default("Member") // freeform, set by super-admin — e.g. "Youth Pastor", "Prayer Coordinator"
+  isLeader    Boolean          @default(false)
+  status      DepartmentStatus @default(ACTIVE)
+  joinedAt    DateTime         @default(now()) @db.Timestamptz(6)
+  leftAt      DateTime?        @db.Timestamptz(6)
+  deletedAt   DateTime?        @db.Timestamptz(6)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  createdById String?
+  updatedById String?
+
+  member      Member   @relation(fields: [memberId], references: [id])
+  ministry    Ministry @relation(fields: [ministryId], references: [id])
+
+  @@unique([memberId, ministryId])
+  @@index([ministryId])
+  @@index([memberId])
 }
 
 model Worker {
@@ -398,7 +430,6 @@ model Worker {
   deletedAt       DateTime?          @db.Timestamptz(6)
   createdAt       DateTime           @default(now()) @db.Timestamptz(6)
   updatedAt       DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
-  leadsMinistry   Ministry?          @relation("MinistryLeader")
   department      Department?        @relation(fields: [departmentId], references: [id])
   member          Member             @relation(fields: [memberId], references: [id])
   ministry        Ministry?          @relation("MinistryWorkers", fields: [ministryId], references: [id])
@@ -674,6 +705,15 @@ model PrayerRequestNote {
 
   @@index([prayerRequestId])
   @@index([authorId])
+}
+model SystemSetting {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  key         String   @unique
+  value       Json
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@index([key])
 }
 enum Gender {
   MALE

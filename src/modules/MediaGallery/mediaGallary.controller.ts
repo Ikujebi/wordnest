@@ -11,43 +11,51 @@ import {
   UploadedFile,
   Req,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MediaGalleryService } from './mediaGallery.service';
 import { CreateMediaGalleryDto } from './dto/create-media-gallery.dto';
 import { UpdateMediaGalleryDto } from './dto/update-media-gallery.dto';
 import { MediaGalleryQueryDto } from './dto/media-gallery-query.dto';
-// Import your auth/jwt guard and current user decorator if applicable
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('media-gallery')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class MediaGalleryController {
   constructor(private readonly mediaGalleryService: MediaGalleryService) {}
 
   @Post()
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   async create(
     @Body() dto: CreateMediaGalleryDto,
     @UploadedFile() file: Express.Multer.File,
-    @Req() req: any, // Access user ID from request context (e.g. req.user.id)
+    @Req() req: any,
   ) {
-    const adminId = req.user?.id; 
-    return this.mediaGalleryService.createMedia(dto, adminId, file);
+    return this.mediaGalleryService.createMedia(dto, req.user.id, file);
   }
 
+  // Reads open to any authenticated user — most portals show media (banners, sermon
+  // thumbnails) app-wide. Tighten to SUPER_ADMIN/ADMIN if this gallery is admin-only.
   @Get()
   async findAll(@Query() query: MediaGalleryQueryDto) {
     return this.mediaGalleryService.findAll(query);
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.mediaGalleryService.findOne(id);
   }
 
   @Patch(':id')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @UseInterceptors(FileInterceptor('file'))
   async update(
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateMediaGalleryDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
@@ -55,7 +63,8 @@ export class MediaGalleryController {
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: string) {
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  async remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.mediaGalleryService.remove(id);
   }
 }
