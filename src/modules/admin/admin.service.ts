@@ -1,14 +1,18 @@
-// src/modules/admin/admin.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Prisma, Role } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import { NotificationService } from '../notifications/notification.service';
+import { CreateMemberDto } from './dto/create-member.dto';
+import { UpdateMemberStatusDto } from './dto/update-member-status.dto';
+import { MemberQueryDto } from './dto/member-query.dto';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
@@ -19,82 +23,111 @@ export class AdminService {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [totalEvents, activeDepartments] = await Promise.all([
+    const [totalEvents, activeDepartments, totalMembers, activeWorkers] = await Promise.all([
       this.prisma.event.count({
-        where: {
-          startDate: { gte: startOfToday },
-          deletedAt: null,
+        where: { startDate: { gte: startOfToday }, deletedAt: null },
+      }),
+      this.prisma.department.count({ where: { deletedAt: null } }),
+      this.prisma.member.count({ where: { deletedAt: null } }),
+      this.prisma.worker.count({ where: { deletedAt: null, isActive: true } }),
+    ]);
+
+    return { totalEvents, activeDepartments, totalMembers, activeWorkers };
+  }
+
+  /**
+   * Paginated, searchable member listing.
+   */
+  async listAllMembers(query: MemberQueryDto) {
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.MemberWhereInput = {
+      deletedAt: null,
+      ...(query.search
+        ? {
+            OR: [
+              { firstName: { contains: query.search, mode: 'insensitive' } },
+              { lastName: { contains: query.search, mode: 'insensitive' } },
+              { email: { contains: query.search, mode: 'insensitive' } },
+              { phoneNumber: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.member.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { lastName: 'asc' },
+        include: {
+          user: { select: { id: true, email: true, isActive: true, role: true } },
         },
       }),
-      this.prisma.department.count({
-        where: { deletedAt: null },
-      }),
+      this.prisma.member.count({ where }),
     ]);
 
     return {
-      totalEvents,
-      activeDepartments,
+      data: items,
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
-  // ==========================================
-  //         INDIVIDUAL TARGETING METHODS
-  // ==========================================
-
-  /**
-   * Fetch a specific individual member's profile along with their system user credentials.
-   */
   async targetIndividualMember(memberId: string) {
     const member = await this.prisma.member.findUnique({
       where: { id: memberId },
       include: {
         user: {
-          select: {
-            id: true,
-            email: true,
-            fullName: true,
-            phoneNumber: true,
-            role: true,
-            isActive: true,
-          },
+          select: { id: true, email: true, fullName: true, phoneNumber: true, role: true, isActive: true },
         },
       },
     });
 
     if (!member || member.deletedAt) {
-      throw new NotFoundException(
-        `Member with ID ${memberId} does not exist or has been removed.`,
-      );
+      throw new NotFoundException(`Member with ID ${memberId} does not exist or has been removed.`);
     }
 
     return member;
   }
 
   /**
-   * Fetch all members under administrative purview (excluding soft-deleted accounts).
+   * Creates a bare member profile (not tied to a User login — that's a separate
+   * invite/signup flow). Useful for admins registering walk-in congregants.
    */
-  async listAllMembers() {
-    return this.prisma.member.findMany({
-      where: { deletedAt: null },
-      include: {
-        user: {
-          select: {
-            email: true,
-            isActive: true,
-          },
+  async createMember(dto: CreateMemberDto, adminId: string) {
+    try {
+      const member = await this.prisma.member.create({
+        data: { ...dto, createdById: adminId },
+      });
+
+      await this.auditLogService.createLog(
+        { id: adminId },
+        {
+          action: AuditAction.CREATE_MEMBER,
+          entity: 'MEMBER',
+          entityId: member.id,
+          description: `Created member profile for ${member.firstName} ${member.lastName}`,
+          newValues: member,
         },
-      },
-      orderBy: { lastName: 'asc' },
-    });
+      );
+
+      return member;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('A member with this email already exists.');
+      }
+      this.logger.error('Failed to create member', error instanceof Error ? error.stack : String(error));
+      throw new InternalServerErrorException('Could not create member profile.');
+    }
   }
 
-  /**
-   * Update a member's status/details, record audit logs, and dispatch notifications.
-   */
   async updateIndividualMemberStatus(
     performingAdminId: string,
     memberId: string,
-    data: { isWorker?: boolean; isActive?: boolean; role?: Role },
+    data: UpdateMemberStatusDto,
   ) {
     const memberExists = await this.prisma.member.findUnique({
       where: { id: memberId },
@@ -105,7 +138,6 @@ export class AdminService {
       throw new NotFoundException('Target member not found.');
     }
 
-    // 1. Update Member and connected User record if user fields are passed
     const updatedMember = await this.prisma.member.update({
       where: { id: memberId },
       data: {
@@ -122,19 +154,10 @@ export class AdminService {
           : {}),
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            fullName: true,
-            role: true,
-            isActive: true,
-          },
-        },
+        user: { select: { id: true, email: true, fullName: true, role: true, isActive: true } },
       },
     });
 
-    // 2. Record Audit Log
     await this.auditLogService.createLog(
       { id: performingAdminId },
       {
@@ -151,7 +174,6 @@ export class AdminService {
       },
     );
 
-    // 3. Dispatch Notification if the member has an attached User ID
     if (memberExists.userId) {
       await this.notificationsService.notify(memberExists.userId, {
         title: 'Member Profile Updated',
@@ -160,5 +182,35 @@ export class AdminService {
     }
 
     return updatedMember;
+  }
+
+  /**
+   * Soft-deletes a member profile.
+   */
+  async deleteMember(memberId: string, adminId: string) {
+    const member = await this.prisma.member.findUnique({ where: { id: memberId } });
+
+    if (!member || member.deletedAt) {
+      throw new NotFoundException('Member not found.');
+    }
+
+    const deleted = await this.prisma.member.update({
+      where: { id: memberId },
+      data: { deletedAt: new Date() },
+    });
+
+    await this.auditLogService.createLog(
+      { id: adminId },
+      {
+        action: AuditAction.DELETE_MEMBER,
+        entity: 'MEMBER',
+        entityId: memberId,
+        description: `Deleted member profile for ${member.firstName} ${member.lastName}`,
+        oldValues: member,
+        newValues: deleted,
+      },
+    );
+
+    return { message: 'Member removed successfully.' };
   }
 }

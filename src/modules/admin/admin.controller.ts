@@ -1,29 +1,50 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Req, ParseUUIDPipe } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { CreateMemberDto } from './dto/create-member.dto';
+import { UpdateMemberStatusDto } from './dto/update-member-status.dto';
+import { MemberQueryDto } from './dto/member-query.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 
-@Controller('api/admin')
+@Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('ADMIN') // Safeguard: Only users with the ADMIN role can hit these endpoints
+@Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
-  @Get('stats')
-  async getStats() {
+  @Get('metrics/summary')
+  getStats() {
     return this.adminService.getDashboardStats();
   }
 
-  // Route to get a high-level list of all members
   @Get('members')
-  async getAllMembers() {
-    return this.adminService.listAllMembers();
+  getAllMembers(@Query() query: MemberQueryDto) {
+    return this.adminService.listAllMembers(query);
   }
 
-  // Route to target a single member profile specifically
   @Get('members/:id')
-  async getMemberDetail(@Param('id') id: string) {
+  getMemberDetail(@Param('id', ParseUUIDPipe) id: string) {
     return this.adminService.targetIndividualMember(id);
+  }
+
+  @Post('members')
+  createMember(@Req() req: any, @Body() dto: CreateMemberDto) {
+    return this.adminService.createMember(dto, req.user.id);
+  }
+
+  @Patch('members/:id')
+  updateMember(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
+    @Body() dto: UpdateMemberStatusDto,
+  ) {
+    return this.adminService.updateIndividualMemberStatus(req.user.id, id, dto);
+  }
+
+  @Delete('members/:id')
+  deleteMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.adminService.deleteMember(id, req.user.id);
   }
 }
