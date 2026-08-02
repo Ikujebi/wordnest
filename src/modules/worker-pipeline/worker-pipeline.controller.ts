@@ -1,24 +1,40 @@
-import { Controller, Post, Body, Patch, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Query, ParseUUIDPipe, UseGuards, Req } from '@nestjs/common';
 import { WorkerPipelineService } from './worker-pipeline.service';
 import { ApplyTrainingDto } from './dto/apply-training.dto';
 import { UpdatePipelineStageDto } from './dto/update-pipeline-stage.dto';
+import { PipelineQueryDto } from './dto/pipeline-query.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('worker-onboarding')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class WorkerPipelineController {
   constructor(private readonly pipelineService: WorkerPipelineService) {}
 
+  @Get('applications')
+  async listApplications(@Query() query: PipelineQueryDto) {
+    return this.pipelineService.findAll(query);
+  }
+
+  @Get('applications/:id')
+  async getApplication(@Param('id', ParseUUIDPipe) id: string) {
+    return this.pipelineService.findOne(id);
+  }
+
   @Post('applications')
-  async fileApplication(@Body() dto: ApplyTrainingDto) {
-    return this.pipelineService.initializeOnboarding(dto);
+  async fileApplication(@Req() req: any, @Body() dto: ApplyTrainingDto) {
+    return this.pipelineService.initializeOnboarding(dto, req.user.id);
   }
 
   @Patch('applications/:id/stage')
   async progressStage(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdatePipelineStageDto
+    @Req() req: any,
+    @Body() dto: UpdatePipelineStageDto,
   ) {
-    return this.pipelineService.advancePipelineStage(id, dto);
+    return this.pipelineService.advancePipelineStage(id, dto, req.user.id);
   }
 }

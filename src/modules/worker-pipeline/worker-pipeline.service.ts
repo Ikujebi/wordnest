@@ -11,6 +11,7 @@ import { UpdatePipelineStageDto } from './dto/update-pipeline-stage.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
+import { PipelineQueryDto } from './dto/pipeline-query.dto';
 
 @Injectable()
 export class WorkerPipelineService {
@@ -25,7 +26,10 @@ export class WorkerPipelineService {
   /**
    * Initializes an onboarding pipeline tracking record for a prospective worker.
    */
-  async initializeOnboarding(dto: ApplyTrainingDto): Promise<WorkerInTraining> {
+  async initializeOnboarding(
+    dto: ApplyTrainingDto,
+    adminId: string,
+  ): Promise<WorkerInTraining> {
     try {
       const pipeline = await this.prisma.workerInTraining.create({
         data: {
@@ -48,7 +52,7 @@ export class WorkerPipelineService {
 
       // 2. Audit Log
       await this.auditLogService.createLog(
-        {},
+        { id: adminId },
         {
           action: AuditAction.CREATE_WORKER_PIPELINE,
           entity: 'WorkerInTraining',
@@ -61,7 +65,7 @@ export class WorkerPipelineService {
       // Log mentor assignment if specified
       if (dto.mentorId || dto.mentorWorkerId) {
         await this.auditLogService.createLog(
-          {},
+          { id: adminId },
           {
             action: AuditAction.ASSIGN_WORKER_MENTOR,
             entity: 'WorkerInTraining',
@@ -96,6 +100,7 @@ export class WorkerPipelineService {
   async advancePipelineStage(
     id: string,
     dto: UpdatePipelineStageDto,
+    adminId: string,
   ): Promise<WorkerInTraining> {
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -133,7 +138,7 @@ export class WorkerPipelineService {
 
         // 2. Audit log for stage change
         await this.auditLogService.createLog(
-          {},
+          { id: adminId },
           {
             action: AuditAction.UPDATE_WORKER_PIPELINE_STAGE,
             entity: 'WorkerInTraining',
@@ -182,7 +187,7 @@ export class WorkerPipelineService {
 
           // Promotion Audit Log
           await this.auditLogService.createLog(
-            {},
+            { id: adminId },
             {
               action: AuditAction.PROMOTE_TO_WORKER,
               entity: 'Worker',
@@ -205,5 +210,67 @@ export class WorkerPipelineService {
         'Transaction rollback executed. Roster upgrade pipeline failed.',
       );
     }
+  }
+
+  /**
+   * Lists all active (non-deleted) pipeline records, optionally filtered by
+   * stage or search term, grouped for Kanban-style board rendering.
+   */
+  async findAll(query: PipelineQueryDto) {
+    const where: Prisma.WorkerInTrainingWhereInput = {
+      deletedAt: null,
+      ...(query.stage ? { stage: query.stage } : {}),
+      ...(query.search
+        ? {
+            member: {
+              OR: [
+                { firstName: { contains: query.search, mode: 'insensitive' } },
+                { lastName: { contains: query.search, mode: 'insensitive' } },
+                { email: { contains: query.search, mode: 'insensitive' } },
+              ],
+            },
+          }
+        : {}),
+    };
+
+    return this.prisma.workerInTraining.findMany({
+      where,
+      include: {
+        member: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        department: {
+          select: { id: true, name: true },
+        },
+        mentor: {
+          select: { id: true, firstName: true, lastName: true },
+        },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
+  /**
+   * Retrieves a single pipeline record with full relation detail.
+   */
+  async findOne(id: string) {
+    const record = await this.prisma.workerInTraining.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        member: {
+          select: { id: true, firstName: true, lastName: true, email: true, phoneNumber: true },
+        },
+        department: { select: { id: true, name: true } },
+        mentor: { select: { id: true, firstName: true, lastName: true } },
+        mentorWorker: { select: { id: true, position: true } },
+        leadershipClass: { select: { id: true, name: true, level: true } },
+      },
+    });
+
+    if (!record) {
+      throw new NotFoundException('Pipeline record not found.');
+    }
+
+    return record;
   }
 }
