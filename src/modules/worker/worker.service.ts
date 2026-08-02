@@ -28,7 +28,7 @@ export class WorkerService {
   /**
    * Manually creates a worker and sets the Member's isWorker flag to true.
    */
-  async create(dto: CreateWorkerDto): Promise<Worker> {
+  async create(dto: CreateWorkerDto, adminId?: string): Promise<Worker> {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const existingWorker = await tx.worker.findUnique({
@@ -74,7 +74,7 @@ export class WorkerService {
 
         // Audit log
         await this.auditLogService.createLog(
-          {},
+          adminId ? { id: adminId } : {},
           {
             action: AuditAction.CREATE_WORKER,
             entity: 'Worker',
@@ -185,7 +185,7 @@ export class WorkerService {
   /**
    * Updates worker assignment details.
    */
-  async update(id: string, dto: UpdateWorkerDto): Promise<Worker> {
+  async update(id: string, dto: UpdateWorkerDto, adminId?: string): Promise<Worker> {
     const before = await this.findOne(id);
 
     try {
@@ -201,7 +201,7 @@ export class WorkerService {
       });
 
       await this.auditLogService.createLog(
-        {},
+        adminId ? { id: adminId } : {},
         {
           action: AuditAction.UPDATE_WORKER,
           entity: 'Worker',
@@ -225,7 +225,7 @@ export class WorkerService {
   /**
    * Soft deletes a worker profile and updates member status if no active worker record remains.
    */
-  async remove(id: string): Promise<{ success: boolean }> {
+  async remove(id: string, adminId?: string): Promise<{ success: boolean }> {
     const worker = await this.findOne(id);
 
     await this.prisma.$transaction(async (tx) => {
@@ -247,7 +247,7 @@ export class WorkerService {
     });
 
     await this.auditLogService.createLog(
-      {},
+      adminId ? { id: adminId } : {},
       {
         action: AuditAction.DELETE_WORKER,
         entity: 'Worker',
@@ -263,7 +263,7 @@ export class WorkerService {
   /**
    * Records or updates worker attendance for a given date, notifies the member, and logs an audit record.
    */
-  async recordAttendance(workerId: string, dto: RecordAttendanceDto) {
+  async recordAttendance(workerId: string, dto: RecordAttendanceDto, adminId?: string) {
     const worker = await this.findOne(workerId);
     const attendanceDate = new Date(dto.date);
 
@@ -291,7 +291,7 @@ export class WorkerService {
     });
 
     await this.auditLogService.createLog(
-      {},
+      adminId ? { id: adminId } : {},
       {
         action: AuditAction.RECORD_WORKER_ATTENDANCE,
         entity: 'WorkerAttendance',
