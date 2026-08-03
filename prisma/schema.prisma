@@ -54,7 +54,7 @@ model User {
   assignedPrayerRequests  PrayerRequest[]     @relation("PrayerAssignedTo")
   answeredPrayerRequests  PrayerRequest[]     @relation("PrayerAnsweredBy")
   prayerRequestNotes      PrayerRequestNote[]
-
+  rsvps                  EventRsvp[]
   @@index([role])
   @@index([isActive])
 }
@@ -164,8 +164,11 @@ model Member {
   communicationRecipients CommunicationRecipient[]
   subscribers             Subscriber[]
   prayerRequests PrayerRequest[]
+  receiveEmailNotifications Boolean @default(true)  // NEW
+  receiveSmsNotifications   Boolean @default(false) 
   ledMinistries       Ministry[]        @relation("MinistryPrimaryLeader")
   ministryMemberships MinistryMember[]
+  rsvps               EventRsvp[]
   @@index([lastName])
 }
 
@@ -259,10 +262,34 @@ model Event {
   updatedById String?
   attendances Attendance[]
   media       MediaGallery[]
-
+  rsvps       EventRsvp[]
   @@index([startDate])
 }
+model EventRsvp {
+  id        String     @id @default(dbgenerated("(gen_random_uuid())::text"))
+  eventId   String
+  userId    String?    // If RSVPed by an authenticated User
+  memberId  String?    // If linked to a Member profile
 
+  // Guest details (for public or non-member RSVPs)
+  fullName    String?
+  email       String?
+  phoneNumber String?
+
+  status    RsvpStatus @default(CONFIRMED)
+  createdAt DateTime   @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime   @updatedAt @db.Timestamptz(6)
+
+  event  Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, userId])
+  @@unique([eventId, memberId])
+  @@index([eventId])
+  @@index([userId])
+  @@index([memberId])
+}
 model Attendance {
   id        String           @id @default(dbgenerated("(gen_random_uuid())::text"))
   memberId  String
@@ -720,12 +747,19 @@ enum Gender {
   FEMALE
 }
 
+enum RsvpStatus {
+  CONFIRMED
+  WAITLISTED
+  CANCELLED
+}
+
 enum AttendanceStatus {
+  RSVPED      
+  REGISTERED   
   PRESENT
   ABSENT
   EXCUSED
 }
-
 enum MaritalStatus {
   SINGLE
   MARRIED

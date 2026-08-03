@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  BadRequestException,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
@@ -308,6 +309,67 @@ export class EventsService {
   }
 
   /**
+   * Member self-service RSVP — creates/updates a REGISTERED attendance record.
+   */
+  async rsvp(eventId: string, userId: string) {
+    const event = await this.findEventOrThrow(eventId);
+    if (!event.isPublished) {
+      throw new BadRequestException('This event has been cancelled or is unpublished.');
+    }
+
+    const member = await this.prisma.member.findUnique({ where: { userId } });
+    if (!member) throw new NotFoundException('No member profile linked to this account.');
+
+    const record = await this.prisma.attendance.upsert({
+      where: { memberId_eventId: { memberId: member.id, eventId } },
+      update: { status: 'REGISTERED' },
+      create: { memberId: member.id, eventId, status: 'REGISTERED' },
+    });
+
+    await this.auditLogService.createLog(
+      { id: userId },
+      {
+        action: AuditAction.RSVP_EVENT,
+        entity: 'Attendance',
+        entityId: record.id,
+        description: `Member RSVP'd to event ${eventId}.`,
+        newValues: record,
+      },
+    );
+
+    return record;
+  }
+
+  /**
+   * Member self-service RSVP cancellation.
+   */
+  async cancelRsvp(eventId: string, userId: string) {
+    const member = await this.prisma.member.findUnique({ where: { userId } });
+    if (!member) throw new NotFoundException('No member profile linked to this account.');
+
+    const existing = await this.prisma.attendance.findUnique({
+      where: { memberId_eventId: { memberId: member.id, eventId } },
+    });
+    if (!existing || existing.status !== 'REGISTERED') {
+      return { message: 'No active RSVP to cancel.' };
+    }
+
+    await this.prisma.attendance.delete({ where: { id: existing.id } });
+
+    await this.auditLogService.createLog(
+      { id: userId },
+      {
+        action: AuditAction.CANCEL_RSVP,
+        entity: 'Attendance',
+        entityId: existing.id,
+        description: `Member cancelled RSVP to event ${eventId}.`,
+      },
+    );
+
+    return { message: 'RSVP cancelled.' };
+  }
+
+  /**
    * Fetches an event profile alongside its detailed member attendance sheet.
    */
   async getEventRoster(eventId: string, userId?: string) {
@@ -338,6 +400,7 @@ export class EventsService {
 
     return eventData;
   }
+
   /**
    * Admin-facing: all active events regardless of publish state.
    */

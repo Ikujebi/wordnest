@@ -89,4 +89,14 @@ export class EventsController {
   ) {
     return this.eventsService.recordAttendance(eventId, recordAttendanceDto);
   }
+
+  @Post(':id/rsvp')
+  async rsvp(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.eventsService.rsvp(id, req.user.id);
+  }
+
+  @Delete(':id/rsvp')
+  async cancelRsvp(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.eventsService.cancelRsvp(id, req.user.id);
+  }
 }
