@@ -28,6 +28,13 @@ export class PrayerRequestsService {
   ) {}
 
   /**
+   * Helper to format actor context for audit logs without triggering TS errors
+   */
+  private getActorContext(actorId?: string) {
+    return actorId ? { id: actorId } : {};
+  }
+
+  /**
    * Get all eligible users who can be assigned to a prayer request:
    * 1. SUPER_ADMINs
    * 2. ADMINs
@@ -84,7 +91,7 @@ export class PrayerRequestsService {
   /**
    * Create prayer request from public website
    */
-  async create(dto: CreatePrayerRequestDto) {
+  async create(dto: CreatePrayerRequestDto, actorId?: string) {
     const prayerRequest = await this.prisma.prayerRequest.create({
       data: {
         firstName: dto.firstName,
@@ -110,13 +117,15 @@ export class PrayerRequestsService {
     // Notify admins
     await this.notificationService.notifyAdmins({
       title: 'New Prayer Request',
-      message: `${prayerRequest.firstName} ${prayerRequest.lastName} submitted a prayer request.`,
+      message: `${prayerRequest.firstName ?? 'Someone'} ${
+        prayerRequest.lastName ?? ''
+      } submitted a prayer request.`.trim(),
       type: NotificationType.PRAYER,
     });
 
     // Audit
     await this.auditLogService.createLog(
-      {},
+      this.getActorContext(actorId),
       {
         action: AuditAction.CREATE_PRAYER_REQUEST,
         entity: 'PrayerRequest',
@@ -143,8 +152,16 @@ export class PrayerRequestsService {
         createdAt: 'desc',
       },
       include: {
-        assignedTo: true,
-        notes: true,
+        assignedTo: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+        notes: {
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
   }
@@ -156,8 +173,16 @@ export class PrayerRequestsService {
     const prayer = await this.prisma.prayerRequest.findUnique({
       where: { id },
       include: {
-        assignedTo: true,
-        notes: true,
+        assignedTo: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+          },
+        },
+        notes: {
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -171,7 +196,7 @@ export class PrayerRequestsService {
   /**
    * Update prayer request
    */
-  async update(id: string, dto: UpdatePrayerRequestDto) {
+  async update(id: string, dto: UpdatePrayerRequestDto, actorId?: string) {
     const oldPrayer = await this.findOne(id);
 
     const updated = await this.prisma.prayerRequest.update({
@@ -180,7 +205,7 @@ export class PrayerRequestsService {
     });
 
     await this.auditLogService.createLog(
-      {},
+      this.getActorContext(actorId),
       {
         action: AuditAction.UPDATE_PRAYER_REQUEST,
         entity: 'PrayerRequest',
@@ -197,7 +222,11 @@ export class PrayerRequestsService {
   /**
    * Assign prayer request with strict role & department validation
    */
-  async assignPrayer(id: string, dto: AssignPrayerRequestDto) {
+  async assignPrayer(
+    id: string,
+    dto: AssignPrayerRequestDto,
+    actorId?: string,
+  ) {
     const prayer = await this.findOne(id);
 
     // Validate that the assigned target is a SUPER_ADMIN, ADMIN, or Prayer Dept Worker
@@ -244,27 +273,29 @@ export class PrayerRequestsService {
       },
     });
 
+    // Pass the assignee's full name (or fallback) to the communication service
     if (prayer.email) {
+      const assigneeName = assignee.fullName || 'Prayer Team Member';
       await this.prayerCommunicationService.sendAssignedEmail(
         updated,
-        dto.note ?? '',
+        assigneeName,
       );
     }
 
     // Notify assigned user directly using notify (takes userId)
     await this.notificationService.notify(dto.assignedToId, {
       title: 'Prayer Assignment',
-      message: `${prayer.subject} has been assigned to you.`,
+      message: `Prayer request "${prayer.subject}" has been assigned to you.`,
       type: NotificationType.PRAYER,
     });
 
     await this.auditLogService.createLog(
-      {},
+      this.getActorContext(actorId),
       {
         action: AuditAction.ASSIGN_PRAYER_REQUEST,
         entity: 'PrayerRequest',
         entityId: updated.id,
-        description: `Prayer request assigned to ${dto.assignedToId}`,
+        description: `Prayer request assigned to user ID ${dto.assignedToId}`,
         oldValues: prayer,
         newValues: updated,
       },
@@ -276,7 +307,7 @@ export class PrayerRequestsService {
   /**
    * Mark prayer as answered
    */
-  async markAnswered(id: string, testimony?: string) {
+  async markAnswered(id: string, testimony?: string, actorId?: string) {
     await this.findOne(id);
 
     const updated = await this.prisma.prayerRequest.update({
@@ -301,17 +332,17 @@ export class PrayerRequestsService {
 
     await this.notificationService.notifyAdmins({
       title: 'Prayer Answered',
-      message: `${updated.subject} has been marked as answered.`,
+      message: `Prayer request "${updated.subject}" has been marked as answered.`,
       type: NotificationType.PRAYER,
     });
 
     await this.auditLogService.createLog(
-      {},
+      this.getActorContext(actorId),
       {
         action: AuditAction.ANSWER_PRAYER_REQUEST,
         entity: 'PrayerRequest',
         entityId: updated.id,
-        description: 'Prayer request marked answered',
+        description: 'Prayer request marked as answered',
         newValues: updated,
       },
     );
@@ -350,7 +381,7 @@ export class PrayerRequestsService {
     }
 
     await this.auditLogService.createLog(
-      { id: authorId },
+      this.getActorContext(authorId),
       {
         action: AuditAction.ADD_PRAYER_NOTE,
         entity: 'PrayerRequest',
@@ -377,7 +408,7 @@ export class PrayerRequestsService {
   /**
    * Delete/archive prayer
    */
-  async remove(id: string) {
+  async remove(id: string, actorId?: string) {
     const prayer = await this.findOne(id);
 
     const archived = await this.prisma.prayerRequest.update({
@@ -390,12 +421,12 @@ export class PrayerRequestsService {
 
     await this.notificationService.notifyAdmins({
       title: 'Prayer Archived',
-      message: `${prayer.subject} has been archived.`,
+      message: `Prayer request "${prayer.subject}" has been archived.`,
       type: NotificationType.PRAYER,
     });
 
     await this.auditLogService.createLog(
-      {},
+      this.getActorContext(actorId),
       {
         action: AuditAction.ARCHIVE_PRAYER_REQUEST,
         entity: 'PrayerRequest',
