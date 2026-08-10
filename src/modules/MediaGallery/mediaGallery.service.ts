@@ -5,15 +5,16 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service'; // Adjust path
-import { CloudinaryService } from '../../cloudinary/cloudinary.service'; // Adjust path
-import { AuditLogService } from '../audit-log/audit-log.service'; // Adjust path
-import { NotificationService } from '../notifications/notification.service'; // Adjust path
-import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import { MediaType, NotificationType, Prisma } from '@prisma/client';
+
+import { PrismaService } from '../../../prisma/prisma.service';
+import { CloudinaryService } from '../../cloudinary/cloudinary.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { AuditAction } from '../audit-log/enums/audit-action.enum';
+import { NotificationService } from '../notifications/notification.service';
 import { CreateMediaGalleryDto } from './dto/create-media-gallery.dto';
-import { UpdateMediaGalleryDto } from './dto/update-media-gallery.dto';
 import { MediaGalleryQueryDto } from './dto/media-gallery-query.dto';
+import { UpdateMediaGalleryDto } from './dto/update-media-gallery.dto';
 
 @Injectable()
 export class MediaGalleryService {
@@ -29,9 +30,17 @@ export class MediaGalleryService {
   /**
    * Directly save a broadcast image attachment (used by Broadcasts Module).
    */
-  async saveBroadcastImage(file: Express.Multer.File, title: string, adminId: string) {
-    const admin = await this.prisma.user.findUnique({ where: { id: adminId } });
-    if (!admin) throw new BadRequestException('Admin user context not found.');
+  async saveBroadcastImage(
+    file: Express.Multer.File,
+    title: string,
+    adminId: string,
+  ) {
+    const admin = await this.prisma.user.findUnique({
+      where: { id: adminId },
+    });
+    if (!admin) {
+      throw new BadRequestException('Admin user context not found.');
+    }
 
     const uploadResult = await this.cloudinaryService.uploadFile(file, {
       folder: 'email-broadcasts',
@@ -50,7 +59,7 @@ export class MediaGalleryService {
 
     // Audit Log
     await this.auditLogService.createLog(
-      {},
+      { id: adminId },
       {
         action: AuditAction.CREATE_MEDIA_GALLERY,
         entity: 'MediaGallery',
@@ -83,7 +92,9 @@ export class MediaGalleryService {
     }
 
     if (!fileUrl) {
-      throw new BadRequestException('An image file or a valid URL must be provided.');
+      throw new BadRequestException(
+        'An image file or a valid URL must be provided.',
+      );
     }
 
     try {
@@ -98,14 +109,14 @@ export class MediaGalleryService {
         },
         include: {
           uploadedBy: {
-            select: { id: true, firstName: true, lastName: true, email: true },
+            select: { id: true, fullName: true, email: true },
           },
         },
       });
 
       // 1. Audit Log
       await this.auditLogService.createLog(
-        {},
+        { id: adminId },
         {
           action: AuditAction.CREATE_MEDIA_GALLERY,
           entity: 'MediaGallery',
@@ -160,7 +171,7 @@ export class MediaGalleryService {
           orderBy: { createdAt: 'desc' },
           include: {
             uploadedBy: {
-              select: { id: true, firstName: true, lastName: true },
+              select: { id: true, fullName: true }, // FIX: Replaced firstName & lastName with fullName
             },
           },
         }),
@@ -181,7 +192,9 @@ export class MediaGalleryService {
         'Failed to fetch media gallery',
         error instanceof Error ? error.stack : String(error),
       );
-      throw new InternalServerErrorException('Error retrieving media gallery.');
+      throw new InternalServerErrorException(
+        'Error retrieving media gallery.',
+      );
     }
   }
 
@@ -193,13 +206,15 @@ export class MediaGalleryService {
       where: { id },
       include: {
         uploadedBy: {
-          select: { id: true, firstName: true, lastName: true, email: true },
+          select: { id: true, fullName: true, email: true }, // FIX: Replaced firstName & lastName with fullName
         },
       },
     });
 
     if (!item) {
-      throw new NotFoundException(`Media asset with ID "${id}" was not found.`);
+      throw new NotFoundException(
+        `Media asset with ID "${id}" was not found.`,
+      );
     }
 
     return item;
@@ -211,6 +226,7 @@ export class MediaGalleryService {
   async updateMedia(
     id: string,
     dto: UpdateMediaGalleryDto,
+    adminId?: string,
     file?: Express.Multer.File,
   ) {
     const existing = await this.findOne(id);
@@ -241,7 +257,7 @@ export class MediaGalleryService {
 
       // Audit Log
       await this.auditLogService.createLog(
-        {},
+        { id: adminId },
         {
           action: AuditAction.UPDATE_MEDIA_GALLERY,
           entity: 'MediaGallery',
@@ -265,7 +281,7 @@ export class MediaGalleryService {
   /**
    * Delete a media asset.
    */
-  async remove(id: string) {
+  async remove(id: string, adminId?: string) {
     const media = await this.findOne(id);
 
     try {
@@ -275,7 +291,7 @@ export class MediaGalleryService {
 
       // Audit Log
       await this.auditLogService.createLog(
-        {},
+        { id: adminId },
         {
           action: AuditAction.DELETE_MEDIA_GALLERY,
           entity: 'MediaGallery',

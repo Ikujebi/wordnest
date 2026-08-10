@@ -39,8 +39,6 @@ export class MediaGalleryController {
     return this.mediaGalleryService.createMedia(dto, req.user.id, file);
   }
 
-  // Reads open to any authenticated user — most portals show media (banners, sermon
-  // thumbnails) app-wide. Tighten to SUPER_ADMIN/ADMIN if this gallery is admin-only.
   @Get()
   async findAll(@Query() query: MediaGalleryQueryDto) {
     return this.mediaGalleryService.findAll(query);
@@ -57,14 +55,20 @@ export class MediaGalleryController {
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateMediaGalleryDto,
+    @Req() req: any,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.mediaGalleryService.updateMedia(id, dto, file);
+    // FIX: Pass req.user.id as adminId and file as 4th parameter
+    return this.mediaGalleryService.updateMedia(id, dto, req.user.id, file);
   }
 
   @Delete(':id')
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.mediaGalleryService.remove(id);
+  async remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
+  ) {
+    // FIX: Pass req.user.id so audit log captures who deleted the item
+    return this.mediaGalleryService.remove(id, req.user.id);
   }
 }

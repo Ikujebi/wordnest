@@ -6,12 +6,15 @@ datasource db {
   provider = "postgresql"
 }
 
-model User {
-  id          String  @id @default(dbgenerated("(gen_random_uuid())::text"))
-  email       String  @unique
-  fullName    String
-  phoneNumber String?
+// ==========================================
+// AUTHENTICATION & USER MANAGEMENT
+// ==========================================
 
+model User {
+  id           String  @id @default(dbgenerated("(gen_random_uuid())::text"))
+  email        String  @unique
+  fullName     String
+  phoneNumber  String?
   passwordHash String
 
   emailVerified   Boolean   @default(false)
@@ -37,70 +40,23 @@ model User {
   createdById String?
   updatedById String?
 
-  auditLogs        AuditLog[]
-  blogPosts        BlogPost[]
-  assignedMessages ContactMessage[]
-  uploadedMedia    MediaGallery[]   @relation("UserUploadedMedia")
-  member           Member?
-  notifications    Notification[]
-
-  // 🔥 ADD THESE TWO LINES
+  auditLogs               AuditLog[]
+  blogPosts               BlogPost[]
+  assignedMessages        ContactMessage[]
+  uploadedMedia           MediaGallery[]           @relation("UserUploadedMedia")
+  member                  Member?
+  notifications           Notification[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
-
-  // 🔥 ADD THIS LINE INSIDE THE USER MODEL
-  communications Communication[]
-  prayerRequestsSubmitted PrayerRequest[]     @relation("PrayerRequester")
-  assignedPrayerRequests  PrayerRequest[]     @relation("PrayerAssignedTo")
-  answeredPrayerRequests  PrayerRequest[]     @relation("PrayerAnsweredBy")
+  communications          Communication[]          @relation("UserCreatedCommunications")
+  prayerRequestsSubmitted PrayerRequest[]          @relation("PrayerRequester")
+  assignedPrayerRequests  PrayerRequest[]          @relation("PrayerAssignedTo")
+  answeredPrayerRequests  PrayerRequest[]          @relation("PrayerAnsweredBy")
   prayerRequestNotes      PrayerRequestNote[]
-  rsvps                  EventRsvp[]
+  rsvps                   EventRsvp[]
+
   @@index([role])
   @@index([isActive])
-}
-
-model AuditLog {
-  id String @id @default(dbgenerated("(gen_random_uuid())::text"))
-
-  // User
-  userId String?
-  user   User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  userEmail String?
-  userRole  Role?
-
-  // Action
-  action      String
-  description String?
-
-  // Resource
-  entity   String?
-  entityId String?
-
-  // Request
-  method    String?
-  endpoint  String?
-  ipAddress String?
-  userAgent String?
-
-  // Response
-  statusCode Int?
-  success    Boolean @default(true)
-
-  // Changes
-  oldValues Json?
-  newValues Json?
-
-  // Extra metadata
-  metadata Json?
-
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
-
-  @@index([userId])
-  @@index([action])
-  @@index([entity])
-  @@index([entityId])
-  @@index([createdAt])
 }
 
 model EmailVerificationToken {
@@ -108,7 +64,7 @@ model EmailVerificationToken {
   userId    String
   token     String    @unique
   expiresAt DateTime
-  createdAt DateTime  @default(now())
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
   usedAt    DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -122,7 +78,7 @@ model PasswordResetToken {
   userId    String
   token     String    @unique
   expiresAt DateTime
-  createdAt DateTime  @default(now())
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
   usedAt    DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -131,114 +87,166 @@ model PasswordResetToken {
   @@index([usedAt])
 }
 
+model AuditLog {
+  id String @id @default(dbgenerated("(gen_random_uuid())::text"))
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  userEmail String?
+  userRole  Role?
+
+  action      String
+  description String?
+
+  entity   String?
+  entityId String?
+
+  method    String?
+  endpoint  String?
+  ipAddress String?
+  userAgent String?
+
+  statusCode Int?
+  success    Boolean @default(true)
+
+  oldValues Json?
+  newValues Json?
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+}
+
+// ==========================================
+// MEMBER DIRECTORY & ORGANIZATIONAL STRUCTURE
+// ==========================================
+
 model Member {
-  id                      String                   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  firstName               String
-  lastName                String
-  otherName               String?
-  email                   String?
-  phoneNumber             String?
-  gender                  Gender?
-  dateOfBirth             DateTime?                @db.Timestamptz(6)
-  maritalStatus           MaritalStatus?
-  address                 String?
-  occupation              String?
-  baptismalStatus         String?
-  isWorker                Boolean                  @default(false)
-  userId                  String?                  @unique
-  deletedAt               DateTime?                @db.Timestamptz(6)
-  createdAt               DateTime                 @default(now()) @db.Timestamptz(6)
-  updatedAt               DateTime                 @default(now()) @updatedAt @db.Timestamptz(6)
-  createdById             String?
-  updatedById             String?
+  id              String         @id @default(dbgenerated("(gen_random_uuid())::text"))
+  firstName       String
+  lastName        String
+  otherName       String?
+  email           String?
+  phoneNumber     String?
+  gender          Gender?
+  dateOfBirth     DateTime?      @db.Timestamptz(6)
+  maritalStatus   MaritalStatus?
+  address         String?
+  occupation      String?
+  baptismalStatus String?
+  isWorker        Boolean        @default(false)
+  userId          String?        @unique
+
+  receiveEmailNotifications Boolean @default(true)
+  receiveSmsNotifications   Boolean @default(false)
+
+  deletedAt   DateTime? @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  createdById String?
+  updatedById String?
+
+  user                    User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
   attendances             Attendance[]
   ledDepartments          Department[]
   departments             DepartmentMember[]
+  ledMinistries           Ministry[]               @relation("MinistryPrimaryLeader")
+  ministryMemberships     MinistryMember[]
   givings                 Giving[]
   facilitatedClasses      LeadershipClass[]
   enrollments             LeadershipEnrollment[]
-  user                    User?                    @relation(fields: [userId], references: [id])
   worker                  Worker?
   workerTrainings         WorkerInTraining[]       @relation("MemberTraining")
   mentees                 WorkerInTraining[]       @relation("Mentorship")
   communicationRecipients CommunicationRecipient[]
   subscribers             Subscriber[]
-  prayerRequests PrayerRequest[]
-  receiveEmailNotifications Boolean @default(true)  // NEW
-  receiveSmsNotifications   Boolean @default(false) 
-  ledMinistries       Ministry[]        @relation("MinistryPrimaryLeader")
-  ministryMemberships MinistryMember[]
-  rsvps               EventRsvp[]
+  prayerRequests          PrayerRequest[]
+  rsvps                   EventRsvp[]
+
   @@index([lastName])
+  @@index([email])
+  @@index([phoneNumber])
 }
 
 model Department {
-  id          String             @id @default(dbgenerated("(gen_random_uuid())::text"))
-  name        String             @unique
-  metrics     DepartmentMetric[]
-  entries     DepartmentMetricEntry[]
-  slug        String             @unique
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name        String    @unique
+  slug        String    @unique
   description String?
   leaderId    String?
-  deletedAt   DateTime?          @db.Timestamptz(6)
-  createdAt   DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
+  deletedAt   DateTime? @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
   createdById String?
   updatedById String?
-  leader      Member?            @relation(fields: [leaderId], references: [id])
-  members     DepartmentMember[]
-  workers     Worker[]
-  trainees    WorkerInTraining[]
+
+  leader   Member?                 @relation(fields: [leaderId], references: [id], onDelete: SetNull)
+  metrics  DepartmentMetric[]
+  entries  DepartmentMetricEntry[]
+  members  DepartmentMember[]
+  workers  Worker[]
+  trainees WorkerInTraining[]
 }
+
 model DepartmentMetric {
-  id           String   @id @default(uuid())
+  id           String     @id @default(dbgenerated("(gen_random_uuid())::text"))
   departmentId String
   department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  
-  title        String   // e.g., "Weekly Attendance Target", "Worker Conversion"
-  weight       Float    // Weight towards 100% total (e.g., 40 for 40%)
-  targetValue  Float    // Expected 100% mark (e.g., 50 members)
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  
-  entries      DepartmentMetricEntry[]
+
+  title       String
+  weight      Float
+  targetValue Float
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  entries DepartmentMetricEntry[]
+
+  @@index([departmentId])
 }
 
 model DepartmentMetricEntry {
-  id             String           @id @default(uuid())
+  id String @id @default(dbgenerated("(gen_random_uuid())::text"))
 
-  departmentId   String
-  department     Department       @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
-  metricId       String
-  metric         DepartmentMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+  metricId String
+  metric   DepartmentMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
 
-  achievedValue  Float
-  period         String
+  achievedValue Float
+  period        String
 
-  createdAt      DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
 
   @@unique([departmentId, metricId, period])
   @@index([departmentId])
   @@index([metricId])
   @@index([period])
 }
+
 model DepartmentMember {
-  id              String             @id @default(dbgenerated("(gen_random_uuid())::text"))
-  memberId        String
-  departmentId    String
-  role            DepartmentRole     @default(MEMBER)
-  status          DepartmentStatus   @default(ACTIVE)
-  joinedAt        DateTime           @default(now()) @db.Timestamptz(6)
-  leftAt          DateTime?          @db.Timestamptz(6)
-  deletedAt       DateTime?          @db.Timestamptz(6)
-  createdAt       DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
-  createdById     String?
-  updatedById     String?
-  department      Department         @relation(fields: [departmentId], references: [id])
-  member          Member             @relation(fields: [memberId], references: [id])
+  id           String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  memberId     String
+  departmentId String
+  role         DepartmentRole   @default(MEMBER)
+  status       DepartmentStatus @default(ACTIVE)
+  joinedAt     DateTime         @default(now()) @db.Timestamptz(6)
+  leftAt       DateTime?        @db.Timestamptz(6)
+  deletedAt    DateTime?        @db.Timestamptz(6)
+  createdAt    DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  createdById  String?
+  updatedById  String?
+
+  department      Department         @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  member          Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
   workerTrainings WorkerInTraining[]
 
   @@unique([memberId, departmentId])
@@ -246,32 +254,202 @@ model DepartmentMember {
   @@index([memberId])
 }
 
+model Ministry {
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  leaderId    String?
+  deletedAt   DateTime? @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  createdById String?
+  updatedById String?
+
+  leader         Member?          @relation("MinistryPrimaryLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+  members        MinistryMember[]
+  leaderWorkerId String?
+
+  // Opposite side of the "MinistryLeaderWorker" relation
+  leaderWorker Worker?  @relation("MinistryLeaderWorker", fields: [leaderWorkerId], references: [id], onDelete: SetNull)
+  workers      Worker[] @relation("MinistryWorkers")
+
+  @@index([leaderId])
+}
+
+model MinistryMember {
+  id          String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  memberId    String
+  ministryId  String
+  roleTitle   String           @default("Member")
+  isLeader    Boolean          @default(false)
+  status      DepartmentStatus @default(ACTIVE)
+  joinedAt    DateTime         @default(now()) @db.Timestamptz(6)
+  leftAt      DateTime?        @db.Timestamptz(6)
+  deletedAt   DateTime?        @db.Timestamptz(6)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
+  createdById String?
+  updatedById String?
+
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  ministry Ministry @relation(fields: [ministryId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, ministryId])
+  @@index([ministryId])
+  @@index([memberId])
+}
+
+model Worker {
+  id           String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  memberId     String    @unique
+  departmentId String?
+  ministryId   String?
+  position     String?
+  isActive     Boolean   @default(true)
+  joinedAt     DateTime  @default(now()) @db.Timestamptz(6)
+  deletedAt    DateTime? @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  department      Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  member          Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  ministry        Ministry?          @relation("MinistryWorkers", fields: [ministryId], references: [id], onDelete: SetNull)
+  leadsMinistry   Ministry[]         @relation("MinistryLeaderWorker")
+  attendances     WorkerAttendance[]
+  trainingMentees WorkerInTraining[] @relation("WorkerMentorship")
+
+  @@index([memberId])
+  @@index([departmentId])
+  @@index([ministryId])
+}
+
+model WorkerAttendance {
+  id        String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  workerId  String
+  date      DateTime         @db.Timestamptz(6)
+  status    AttendanceStatus
+  createdAt DateTime         @default(now()) @db.Timestamptz(6)
+
+  worker Worker @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, date])
+}
+
+model LeadershipClass {
+  id            String          @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name          String
+  description   String?
+  level         LeadershipLevel @default(BASIC)
+  startDate     DateTime?       @db.Timestamptz(6)
+  endDate       DateTime?       @db.Timestamptz(6)
+  isActive      Boolean         @default(true)
+  facilitatorId String?
+  deletedAt     DateTime?       @db.Timestamptz(6)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime        @default(now()) @updatedAt @db.Timestamptz(6)
+
+  facilitator Member?                @relation(fields: [facilitatorId], references: [id], onDelete: SetNull)
+  enrollments LeadershipEnrollment[]
+  sessions    LeadershipSession[]
+  trainees    WorkerInTraining[]
+
+  @@index([facilitatorId])
+}
+
+model LeadershipSession {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  classId     String
+  title       String?
+  scheduledAt DateTime @db.Timestamptz(6)
+  location    String?
+  meetingLink String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  class LeadershipClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledAt])
+  @@index([classId])
+}
+
+model LeadershipEnrollment {
+  id          String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  classId     String
+  memberId    String
+  status      EnrollmentStatus @default(IN_PROGRESS)
+  progress    Int              @default(0)
+  enrolledAt  DateTime         @default(now()) @db.Timestamptz(6)
+  completedAt DateTime?        @db.Timestamptz(6)
+
+  class  LeadershipClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  member Member          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, memberId])
+  @@index([memberId])
+  @@index([classId])
+}
+
+model WorkerInTraining {
+  id                 String              @id @default(dbgenerated("(gen_random_uuid())::text"))
+  memberId           String
+  departmentId       String
+  departmentMemberId String?
+  stage              WorkerTrainingStage @default(APPLIED)
+  leadershipClassId  String?
+  mentorId           String?
+  mentorWorkerId     String?
+  notes              String?
+  startDate          DateTime            @default(now()) @db.Timestamptz(6)
+  isActive           Boolean             @default(true)
+  deletedAt          DateTime?           @db.Timestamptz(6)
+  completedAt        DateTime?           @db.Timestamptz(6)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime            @default(now()) @updatedAt @db.Timestamptz(6)
+
+  department       Department        @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  departmentMember DepartmentMember? @relation(fields: [departmentMemberId], references: [id], onDelete: SetNull)
+  leadershipClass  LeadershipClass?  @relation(fields: [leadershipClassId], references: [id], onDelete: SetNull)
+  member           Member            @relation("MemberTraining", fields: [memberId], references: [id], onDelete: Cascade)
+  mentor           Member?           @relation("Mentorship", fields: [mentorId], references: [id], onDelete: SetNull)
+  mentorWorker     Worker?           @relation("WorkerMentorship", fields: [mentorWorkerId], references: [id], onDelete: SetNull)
+
+  @@index([memberId])
+  @@index([departmentId])
+  @@index([stage])
+}
+
+// ==========================================
+// EVENTS, MEDIA & BLOGS
+// ==========================================
+
 model Event {
-  id          String         @id @default(dbgenerated("(gen_random_uuid())::text"))
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   title       String
   description String?
   location    String?
-  startDate   DateTime       @db.Timestamptz(6)
-  endDate     DateTime?      @db.Timestamptz(6)
+  startDate   DateTime  @db.Timestamptz(6)
+  endDate     DateTime? @db.Timestamptz(6)
   bannerImage String?
-  isPublished Boolean        @default(false)
-  deletedAt   DateTime?      @db.Timestamptz(6)
-  createdAt   DateTime       @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  isPublished Boolean   @default(false)
+  deletedAt   DateTime? @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
   createdById String?
   updatedById String?
+
   attendances Attendance[]
   media       MediaGallery[]
   rsvps       EventRsvp[]
+
   @@index([startDate])
 }
-model EventRsvp {
-  id        String     @id @default(dbgenerated("(gen_random_uuid())::text"))
-  eventId   String
-  userId    String?    // If RSVPed by an authenticated User
-  memberId  String?    // If linked to a Member profile
 
-  // Guest details (for public or non-member RSVPs)
+model EventRsvp {
+  id       String  @id @default(dbgenerated("(gen_random_uuid())::text"))
+  eventId  String
+  userId   String?
+  memberId String?
+
   fullName    String?
   email       String?
   phoneNumber String?
@@ -290,32 +468,20 @@ model EventRsvp {
   @@index([userId])
   @@index([memberId])
 }
+
 model Attendance {
   id        String           @id @default(dbgenerated("(gen_random_uuid())::text"))
   memberId  String
   eventId   String
   status    AttendanceStatus @default(PRESENT)
   createdAt DateTime         @default(now()) @db.Timestamptz(6)
-  event     Event            @relation(fields: [eventId], references: [id])
-  member    Member           @relation(fields: [memberId], references: [id])
+
+  event  Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@unique([memberId, eventId])
   @@index([eventId])
-}
-
-model Giving {
-  id            String         @id @default(dbgenerated("(gen_random_uuid())::text"))
-  memberId      String?
-  amount        Decimal        @db.Decimal(12, 2)
-  type          GivingType
-  reference     String?        @unique
-  paymentMethod PaymentMethod?
-  notes         String?
-  deletedAt     DateTime?      @db.Timestamptz(6)
-  createdAt     DateTime       @default(now()) @db.Timestamptz(6)
-  member        Member?        @relation(fields: [memberId], references: [id])
-
-  @@index([type])
+  @@index([memberId])
 }
 
 model BlogPost {
@@ -333,9 +499,11 @@ model BlogPost {
   updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
   createdById String?
   updatedById String?
-  author      User?     @relation(fields: [authorId], references: [id])
+
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   @@index([isPublished])
+  @@index([authorId])
 }
 
 model Sermon {
@@ -365,11 +533,39 @@ model MediaGallery {
   eventId      String?
   uploadedById String?
   createdAt    DateTime  @default(now()) @db.Timestamptz(6)
-  event        Event?    @relation(fields: [eventId], references: [id])
-  uploadedBy   User?     @relation("UserUploadedMedia", fields: [uploadedById], references: [id])
+
+  event      Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  uploadedBy User?  @relation("UserUploadedMedia", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   @@index([type])
+  @@index([eventId])
 }
+
+// ==========================================
+// FINANCE & GIVING
+// ==========================================
+
+model Giving {
+  id            String         @id @default(dbgenerated("(gen_random_uuid())::text"))
+  memberId      String?
+  amount        Decimal        @db.Decimal(12, 2)
+  type          GivingType
+  reference     String?        @unique
+  paymentMethod PaymentMethod?
+  notes         String?
+  deletedAt     DateTime?      @db.Timestamptz(6)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(6)
+
+  member Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
+
+  @@index([type])
+  @@index([memberId])
+  @@index([createdAt])
+}
+
+// ==========================================
+// COMMUNICATIONS & NOTIFICATIONS
+// ==========================================
 
 model Notification {
   id        String           @id @default(dbgenerated("(gen_random_uuid())::text"))
@@ -379,9 +575,94 @@ model Notification {
   isRead    Boolean          @default(false)
   userId    String?
   createdAt DateTime         @default(now()) @db.Timestamptz(6)
-  user      User?            @relation(fields: [userId], references: [id])
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model Communication {
+  id              String              @id @default(dbgenerated("(gen_random_uuid())::text"))
+  title           String
+  subject         String?
+  content         String
+  type            CommunicationType
+  status          CommunicationStatus
+  prayerRequestId String?
+  scheduledAt     DateTime?           @db.Timestamptz(6)
+  sentAt          DateTime?           @db.Timestamptz(6)
+  deletedAt       DateTime?           @db.Timestamptz(6)
+  archivedAt      DateTime?           @db.Timestamptz(6)
+  metadata        Json?               @default("{}")
+
+  createdById String
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  createdBy     User                     @relation("UserCreatedCommunications", fields: [createdById], references: [id])
+  prayerRequest PrayerRequest?           @relation(fields: [prayerRequestId], references: [id], onDelete: SetNull)
+  channels      CommunicationChannel[]
+  recipients    CommunicationRecipient[]
+  logs          CommunicationLog[]
+
+  @@index([createdById])
+  @@index([status])
+}
+
+model CommunicationRecipient {
+  id              String          @id @default(dbgenerated("(gen_random_uuid())::text"))
+  communicationId String
+  memberId        String?
+  subscriberId    String?
+  email           String?
+  phone           String?
+  status          RecipientStatus @default(PENDING)
+  sentAt          DateTime?       @db.Timestamptz(6)
+
+  communication Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+  member        Member?       @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  subscriber    Subscriber?   @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+
+  @@index([communicationId])
+  @@index([memberId])
+  @@index([subscriberId])
+}
+
+model CommunicationLog {
+  id              String               @id @default(dbgenerated("(gen_random_uuid())::text"))
+  communicationId String
+  channel         CommunicationChannel
+  success         Boolean
+  response        String?
+  createdAt       DateTime             @default(now()) @db.Timestamptz(6)
+
+  communication Communication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+
+  @@index([communicationId])
+}
+
+model Subscriber {
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  firstName        String?
+  lastName         String?
+  email            String?   @unique
+  phoneNumber      String?
+  receiveEmail     Boolean   @default(true)
+  receiveSms       Boolean   @default(false)
+  receiveWhatsapp  Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  unsubscribeToken String    @unique @default(dbgenerated("(gen_random_uuid())::text"))
+  memberId         String?
+  subscribedAt     DateTime  @default(now()) @db.Timestamptz(6)
+  unsubscribedAt   DateTime? @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+
+  member                  Member?                  @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  communicationRecipients CommunicationRecipient[]
+
+  @@index([phoneNumber])
+  @@index([isActive])
 }
 
 model ContactMessage {
@@ -392,11 +673,14 @@ model ContactMessage {
   subject      String
   message      String
   isResolved   Boolean   @default(false)
+  resolvedAt   DateTime? @db.Timestamptz(6)
   isRead       Boolean   @default(false)
   assignedToId String?
   deletedAt    DateTime? @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @db.Timestamptz(6)
-  assignedTo   User?     @relation(fields: [assignedToId], references: [id])
+
+  assignedTo User? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
   @@index([createdAt])
   @@index([isResolved])
   @@index([isRead])
@@ -404,276 +688,28 @@ model ContactMessage {
   @@index([deletedAt])
 }
 
-model Ministry {
-  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
-  name        String    @unique
-  slug        String    @unique
-  description String?
-  leaderId    String?
-  deletedAt   DateTime? @db.Timestamptz(6)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  createdById String?
-  updatedById String?
-
-  leader      Member?          @relation("MinistryPrimaryLeader", fields: [leaderId], references: [id])
-  members     MinistryMember[]
-  workers     Worker[]         @relation("MinistryWorkers")
-
-  @@index([leaderId])
-}
-
-model MinistryMember {
-  id          String           @id @default(dbgenerated("(gen_random_uuid())::text"))
-  memberId    String
-  ministryId  String
-  roleTitle   String           @default("Member") // freeform, set by super-admin — e.g. "Youth Pastor", "Prayer Coordinator"
-  isLeader    Boolean          @default(false)
-  status      DepartmentStatus @default(ACTIVE)
-  joinedAt    DateTime         @default(now()) @db.Timestamptz(6)
-  leftAt      DateTime?        @db.Timestamptz(6)
-  deletedAt   DateTime?        @db.Timestamptz(6)
-  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
-  updatedAt   DateTime         @default(now()) @updatedAt @db.Timestamptz(6)
-  createdById String?
-  updatedById String?
-
-  member      Member   @relation(fields: [memberId], references: [id])
-  ministry    Ministry @relation(fields: [ministryId], references: [id])
-
-  @@unique([memberId, ministryId])
-  @@index([ministryId])
-  @@index([memberId])
-}
-
-model Worker {
-  id              String             @id @default(dbgenerated("(gen_random_uuid())::text"))
-  memberId        String             @unique
-  departmentId    String?
-  ministryId      String?
-  position        String?
-  isActive        Boolean            @default(true)
-  joinedAt        DateTime           @default(now()) @db.Timestamptz(6)
-  deletedAt       DateTime?          @db.Timestamptz(6)
-  createdAt       DateTime           @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime           @default(now()) @updatedAt @db.Timestamptz(6)
-  department      Department?        @relation(fields: [departmentId], references: [id])
-  member          Member             @relation(fields: [memberId], references: [id])
-  ministry        Ministry?          @relation("MinistryWorkers", fields: [ministryId], references: [id])
-  attendances     WorkerAttendance[]
-  trainingMentees WorkerInTraining[] @relation("WorkerMentorship")
-
-  @@index([departmentId])
-}
-
-model WorkerAttendance {
-  id        String           @id @default(dbgenerated("(gen_random_uuid())::text"))
-  workerId  String
-  date      DateTime         @db.Timestamptz(6)
-  status    AttendanceStatus
-  createdAt DateTime         @default(now()) @db.Timestamptz(6)
-  worker    Worker           @relation(fields: [workerId], references: [id])
-
-  @@unique([workerId, date])
-}
-
-model LeadershipClass {
-  id            String                 @id @default(dbgenerated("(gen_random_uuid())::text"))
-  name         String
-  description   String?
-  level         LeadershipLevel        @default(BASIC)
-  startDate     DateTime?              @db.Timestamptz(6)
-  endDate       DateTime?              @db.Timestamptz(6)
-  isActive      Boolean                @default(true)
-  facilitatorId String?
-  deletedAt     DateTime?              @db.Timestamptz(6)
-  createdAt     DateTime               @default(now()) @db.Timestamptz(6)
-  updatedAt     DateTime               @default(now()) @updatedAt @db.Timestamptz(6)
-  facilitator   Member?                @relation(fields: [facilitatorId], references: [id])
-  enrollments   LeadershipEnrollment[]
-  sessions      LeadershipSession[]
-  trainees      WorkerInTraining[]
-}
-
-model LeadershipSession {
-  id          String          @id @default(dbgenerated("(gen_random_uuid())::text"))
-  classId     String
-  title       String?
-  scheduledAt DateTime        @db.Timestamptz(6)
-  location    String?
-  meetingLink String?
-  createdAt   DateTime        @default(now()) @db.Timestamptz(6)
-  class       LeadershipClass @relation(fields: [classId], references: [id])
-
-  @@index([scheduledAt])
-}
-
-model LeadershipEnrollment {
-  id          String           @id @default(dbgenerated("(gen_random_uuid())::text"))
-  classId     String
-  memberId    String
-  status      EnrollmentStatus @default(IN_PROGRESS)
-  progress    Int              @default(0)
-  enrolledAt  DateTime         @default(now()) @db.Timestamptz(6)
-  completedAt DateTime?        @db.Timestamptz(6)
-  class       LeadershipClass  @relation(fields: [classId], references: [id])
-  member      Member           @relation(fields: [memberId], references: [id])
-
-  @@unique([classId, memberId])
-}
-
-model WorkerInTraining {
-  id                 String              @id @default(dbgenerated("(gen_random_uuid())::text"))
-  memberId           String
-  departmentId       String
-  departmentMemberId String?
-  stage              WorkerTrainingStage @default(APPLIED)
-  leadershipClassId  String?
-  mentorId           String?
-  mentorWorkerId     String?
-  notes              String?
-  startDate          DateTime            @default(now()) @db.Timestamptz(6)
-  isActive           Boolean             @default(true)
-  deletedAt          DateTime?           @db.Timestamptz(6)
-  completedAt        DateTime?           @db.Timestamptz(6)
-  createdAt          DateTime            @default(now()) @db.Timestamptz(6)
-  updatedAt          DateTime            @default(now()) @updatedAt @db.Timestamptz(6)
-  department         Department          @relation(fields: [departmentId], references: [id])
-  departmentMember   DepartmentMember?   @relation(fields: [departmentMemberId], references: [id])
-  leadershipClass    LeadershipClass?    @relation(fields: [leadershipClassId], references: [id])
-  member             Member              @relation("MemberTraining", fields: [memberId], references: [id])
-  mentor             Member?             @relation("Mentorship", fields: [mentorId], references: [id])
-  mentorWorker       Worker?             @relation("WorkerMentorship", fields: [mentorWorkerId], references: [id])
-
-  @@index([departmentId])
-  @@index([stage])
-}
-
-model Communication {
-  id String @id @default(uuid())
-
-  title   String
-  subject String?
-  content String
-
-  type   CommunicationType
-  status CommunicationStatus
-  prayerRequestId String?
-  prayerRequest   PrayerRequest? @relation(fields: [prayerRequestId], references: [id])
-  scheduledAt DateTime?
-  sentAt      DateTime?
-
-  // 🔥 ADD THESE TWO LINES HERE:
-  deletedAt  DateTime? @db.Timestamptz(6)
-  archivedAt DateTime? @db.Timestamptz(6)
-
-  metadata Json? @default("{}")
-
-  createdById String
-  createdBy   User                   @relation(fields: [createdById], references: [id])
-  channels    CommunicationChannel[]
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-
-  recipients CommunicationRecipient[]
-  logs       CommunicationLog[]
-}
-
-model CommunicationRecipient {
-  id String @id @default(uuid())
-
-  communicationId String
-
-  memberId String?
-
-  subscriberId String?
-
-  email String?
-
-  phone String?
-
-  status RecipientStatus @default(PENDING)
-
-  sentAt DateTime?
-
-  communication Communication @relation(fields: [communicationId], references: [id])
-
-  member Member? @relation(fields: [memberId], references: [id])
-
-  subscriber Subscriber? @relation(fields: [subscriberId], references: [id])
-
-  @@index([communicationId])
-  @@index([memberId])
-  @@index([subscriberId])
-}
-
-model CommunicationLog {
-  id String @id @default(uuid())
-
-  communicationId String
-
-  channel CommunicationChannel
-
-  success Boolean
-
-  response String?
-
-  createdAt DateTime @default(now())
-
-  communication Communication @relation(fields: [communicationId], references: [id])
-}
-
-model Subscriber {
-  id String @id @default(uuid())
-
-  firstName String?
-  lastName  String?
-
-  email       String? @unique
-  phoneNumber String?
-
-  // Communication preferences
-  receiveEmail    Boolean @default(true)
-  receiveSms      Boolean @default(false)
-  receiveWhatsapp Boolean @default(false)
-
-  isActive                Boolean                  @default(true)
-  communicationRecipients CommunicationRecipient[]
-  // Used for public unsubscribe links
-  unsubscribeToken        String                   @unique @default(uuid())
-
-  // Optional link if subscriber later becomes a church member
-  memberId String?
-  member   Member? @relation(fields: [memberId], references: [id])
-
-  subscribedAt DateTime @default(now()) @db.Timestamptz(6)
-
-  unsubscribedAt DateTime?
-
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  @@index([phoneNumber])
-  @@index([isActive])
-}
-
 model Invitation {
-  id          String       @id @default(uuid())
-  email       String       @unique
-  role        InviteRole   @default(MEMBER)
-  token       String       @unique
-  status      InviteStatus @default(PENDING)
-  expiresAt   DateTime
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  acceptedAt  DateTime?
+  id         String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  email      String       @unique
+  role       InviteRole   @default(MEMBER)
+  token      String       @unique
+  status     InviteStatus @default(PENDING)
+  expiresAt  DateTime     @db.Timestamptz(6)
+  createdAt  DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime     @updatedAt @db.Timestamptz(6)
+  acceptedAt DateTime?    @db.Timestamptz(6)
 
   @@index([token])
 }
+
+// ==========================================
+// PRAYER REQUESTS & SYSTEM SETTINGS
+// ==========================================
+
 model PrayerRequest {
-  id                     String                  @id @default(uuid())
-  requesterId            String?                 // if logged-in member/user
-  memberId               String?                 // if linked to church member
+  id                     String                  @id @default(dbgenerated("(gen_random_uuid())::text"))
+  requesterId            String?
+  memberId               String?
   firstName              String?
   lastName               String?
   email                  String?
@@ -684,64 +720,66 @@ model PrayerRequest {
   visibility             PrayerRequestVisibility @default(PRIVATE)
   priority               PrayerRequestPriority   @default(NORMAL)
   isConfidential         Boolean                 @default(true)
-
-  // DTO support fields
   internalSummary        String?
   testimony              String?
   allowFollowUp          Boolean                 @default(true)
   preferredContactMethod String?
   followUpSent           Boolean                 @default(false)
-
   status                 PrayerRequestStatus     @default(PENDING)
-
   assignedToId           String?
   answeredById           String?
-  answeredAt             DateTime?
-  acknowledgedAt         DateTime?
-  closedAt               DateTime?
-
+  answeredAt             DateTime?               @db.Timestamptz(6)
+  acknowledgedAt         DateTime?               @db.Timestamptz(6)
+  closedAt               DateTime?               @db.Timestamptz(6)
   deletedAt              DateTime?               @db.Timestamptz(6)
   createdAt              DateTime                @default(now()) @db.Timestamptz(6)
   updatedAt              DateTime                @default(now()) @updatedAt @db.Timestamptz(6)
 
-  requester              User?                   @relation("PrayerRequester", fields: [requesterId], references: [id])
-  member                 Member?                 @relation(fields: [memberId], references: [id])
-  assignedTo             User?                   @relation("PrayerAssignedTo", fields: [assignedToId], references: [id])
-  answeredBy             User?                   @relation("PrayerAnsweredBy", fields: [answeredById], references: [id])
-
-  notes                  PrayerRequestNote[]
-  communications         Communication[]
+  requester      User?               @relation("PrayerRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  member         Member?             @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  assignedTo     User?               @relation("PrayerAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  answeredBy     User?               @relation("PrayerAnsweredBy", fields: [answeredById], references: [id], onDelete: SetNull)
+  notes          PrayerRequestNote[]
+  communications Communication[]
 
   @@index([status])
   @@index([category])
   @@index([priority])
   @@index([memberId])
   @@index([requesterId])
+  @@index([email])        // <--- ADD THIS: Fast lookup for non-member requests by email
+  @@index([phoneNumber])
 }
+
 model PrayerRequestNote {
-  id            String        @id @default(uuid())
+  id              String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   prayerRequestId String
-  authorId      String?
-  note          String
-  isInternal    Boolean       @default(true)
+  authorId        String?
+  note            String
+  isInternal      Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
 
-  createdAt     DateTime      @default(now()) @db.Timestamptz(6)
-
-  prayerRequest PrayerRequest  @relation(fields: [prayerRequestId], references: [id], onDelete: Cascade)
-  author        User?         @relation(fields: [authorId], references: [id])
+  prayerRequest PrayerRequest @relation(fields: [prayerRequestId], references: [id], onDelete: Cascade)
+  author        User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   @@index([prayerRequestId])
   @@index([authorId])
 }
+
 model SystemSetting {
   id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   key         String   @unique
   value       Json
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
   updatedById String?
 
   @@index([key])
 }
+
+// ==========================================
+// ENUMS
+// ==========================================
+
 enum Gender {
   MALE
   FEMALE
@@ -754,12 +792,13 @@ enum RsvpStatus {
 }
 
 enum AttendanceStatus {
-  RSVPED      
-  REGISTERED   
+  RSVPED
+  REGISTERED
   PRESENT
   ABSENT
   EXCUSED
 }
+
 enum MaritalStatus {
   SINGLE
   MARRIED
@@ -794,39 +833,6 @@ enum GivingType {
   PARTNERSHIP
   DONATION
   OTHER
-}
-
-enum PrayerStatus {
-  PENDING
-  IN_PROGRESS
-  COMPLETED
-}
-
-enum CounsellingStatus {
-  PENDING
-  SCHEDULED
-  COMPLETED
-  CANCELLED
-}
-
-enum VolunteerStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-enum FollowUpStatus {
-  PENDING
-  CONTACTED
-  DISCIPLED
-  JOINED_CHURCH
-}
-
-enum StreamPlatform {
-  YOUTUBE
-  FACEBOOK
-  MIXLR
-  CUSTOM
 }
 
 enum MediaType {
@@ -918,6 +924,7 @@ enum RecipientStatus {
   FAILED
   READ
 }
+
 enum InviteRole {
   MEMBER
   ADMIN
@@ -928,6 +935,7 @@ enum InviteStatus {
   ACCEPTED
   EXPIRED
 }
+
 enum PrayerRequestCategory {
   HEALING
   FINANCIAL_PROVISION

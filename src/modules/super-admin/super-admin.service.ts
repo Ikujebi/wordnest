@@ -1,4 +1,3 @@
-// src/super-admin/super-admin.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Role } from '@prisma/client';
 
@@ -16,7 +15,7 @@ export class SuperAdminService {
   ) {}
 
   // ==========================================
-  //          GLOBAL DASHBOARD METHODS
+  //        GLOBAL DASHBOARD METHODS
   // ==========================================
 
   async getDashboardStats() {
@@ -149,7 +148,8 @@ export class SuperAdminService {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
-          fullName: true,
+          firstName: true,
+          lastName: true,
           subject: true,
           status: true,
           createdAt: true,
@@ -161,7 +161,7 @@ export class SuperAdminService {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
-          name: true,
+          fullName: true,
           subject: true,
           isRead: true,
           createdAt: true,
