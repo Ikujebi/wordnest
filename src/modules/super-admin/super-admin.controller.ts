@@ -1,4 +1,3 @@
-// src/super-admin/super-admin.controller.ts
 import {
   Controller,
   Get,
@@ -6,6 +5,7 @@ import {
   Param,
   Query,
   Body,
+  Req,
   UseGuards,
   ParseEnumPipe,
 } from '@nestjs/common';
@@ -13,7 +13,16 @@ import { SuperAdminService } from './super-admin.service';
 import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { Role } from '@prisma/client';
 
-// Replace with your project's custom Auth / Roles guards
+// Define a custom interface for authenticated requests
+interface AuthenticatedRequest {
+  user?: {
+    id: string;
+    email?: string;
+    role?: Role;
+  };
+}
+
+// Uncomment these once your Auth Guards are ready for production
 // import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 // import { RolesGuard } from '../auth/guards/roles.guard';
 // import { Roles } from '../auth/decorators/roles.decorator';
@@ -56,9 +65,16 @@ export class SuperAdminController {
 
   @Patch('users/:id/status')
   async updateIndividualStatus(
+    @Req() req: AuthenticatedRequest,
     @Param('id') userId: string,
     @Body() dto: UpdateIndividualStatusDto,
   ) {
-    return this.superAdminService.updateIndividualStatus(userId, dto);
+    const performingAdminId = req.user?.id;
+
+    return this.superAdminService.updateIndividualStatus(
+      performingAdminId!,
+      userId,
+      dto,
+    );
   }
 }
