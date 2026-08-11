@@ -640,18 +640,67 @@ model CommunicationLog {
 
   @@index([communicationId])
 }
-model WebAnalyticsSnapshot {
-  id               String   @id @default(uuid())
-  date             DateTime @unique @db.Date // Truncated to YYYY-MM-DD
-  totalVisitors    Int      @default(0)
-  totalVisits      Int      @default(0)
-  totalPageviews   Int      @default(0)
-  newVisitors      Int      @default(0)
-  returningVisits  Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
 
-  @@index([date])
+
+model WebAnalyticsVisitor {
+  id          String   @id @default(cuid())
+  visitorId   String   @unique
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  sessions WebAnalyticsSession[]
+  events   WebAnalyticsEvent[]
+
+  @@index([lastSeenAt])
+}
+
+model WebAnalyticsSession {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  visitorId String
+
+  startedAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  ipHash    String?
+  userAgent String?
+  country   String?
+  city      String?
+  device    String?
+  browser   String?
+  os        String?
+  referrer  String?
+
+  visitor WebAnalyticsVisitor @relation(fields: [visitorId], references: [visitorId], onDelete: Cascade)
+
+  events WebAnalyticsEvent[]
+
+  @@index([visitorId])
+  @@index([startedAt])
+  @@index([lastSeenAt])
+}
+
+model WebAnalyticsEvent {
+  id String @id @default(cuid())
+
+  event     String
+  path      String?
+  title     String?
+  url       String?
+  createdAt DateTime @default(now())
+
+  visitorId String?
+  sessionId String?
+
+  visitor WebAnalyticsVisitor? @relation(fields: [visitorId], references: [visitorId], onDelete: SetNull)
+
+  session WebAnalyticsSession? @relation(fields: [sessionId], references: [sessionId], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([event])
+  @@index([visitorId])
+  @@index([sessionId])
+  @@index([path])
 }
 model Subscriber {
   id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))

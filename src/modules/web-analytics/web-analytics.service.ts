@@ -3,202 +3,576 @@ import {
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Cron, CronExpression } from '@nestjs/schedule'; // 1. Added Cron imports
+
+import { Cron, CronExpression } from '@nestjs/schedule';
+
+import { createHash } from 'crypto';
 
 import { PrismaService } from '../../../prisma/prisma.service';
+
 import {
-  UmamiStatsResponse,
   AnalyticsResult,
+  TrackAnalyticsEventDto,
 } from '../../../types/visits';
 
 @Injectable()
 export class WebAnalyticsService {
-  private readonly logger = new Logger(WebAnalyticsService.name);
-
-  private readonly apiKey: string | undefined;
-  private readonly websiteId: string | undefined;
-  private readonly apiBase: string;
+  private readonly logger = new Logger(
+    WebAnalyticsService.name,
+  );
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly configService: ConfigService,
-  ) {
-    this.apiKey = this.configService.get<string>('UMAMI_API_KEY');
-    this.websiteId = this.configService.get<string>('UMAMI_WEBSITE_ID');
-    this.apiBase =
-      this.configService.get<string>('UMAMI_API_BASE') ??
-      'https://api.umami.is/v1';
+  ) {}
+
+  /**
+   * Hash an IP address before storing it.
+   *
+   * We don't need to store the user's raw IP
+   * address for basic analytics.
+   */
+  private hashIp(
+    ip?: string,
+  ): string | null {
+    if (!ip) {
+      return null;
+    }
+
+    return createHash('sha256')
+      .update(ip)
+      .digest('hex');
   }
 
   /**
-   * Runs automatically at midnight every day (00:00:00).
-   * Syncs metrics for the full previous day into PostgreSQL.
+   * Track a website event.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-  async handleDailyAnalyticsCron(): Promise<void> {
-    this.logger.log('Executing daily automated Umami analytics sync...');
-    
-    // Target yesterday so we save full 24-hour completed metrics
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-
+  async trackEvent(
+    data: TrackAnalyticsEventDto,
+    ip?: string,
+  ): Promise<void> {
     try {
-      await this.syncDailySnapshot(yesterday);
+      /**
+       * Find or create the visitor.
+       */
+      const visitor =
+        await this.prisma.webAnalyticsVisitor.upsert(
+          {
+            where: {
+              visitorId:
+                data.visitorId,
+            },
+
+            update: {
+              lastSeenAt:
+                new Date(),
+            },
+
+            create: {
+              visitorId:
+                data.visitorId,
+            },
+          },
+        );
+
+      /**
+       * Find or create the session.
+       */
+      const session =
+        await this.prisma.webAnalyticsSession.upsert(
+          {
+            where: {
+              sessionId:
+                data.sessionId,
+            },
+
+            update: {
+              lastSeenAt:
+                new Date(),
+
+              userAgent:
+                data.browser ||
+                undefined,
+
+              country:
+                data.country ||
+                undefined,
+
+              city:
+                data.city ||
+                undefined,
+
+              device:
+                data.device ||
+                undefined,
+
+              browser:
+                data.browser ||
+                undefined,
+
+              os:
+                data.os ||
+                undefined,
+
+              referrer:
+                data.referrer ||
+                undefined,
+            },
+
+            create: {
+              sessionId:
+                data.sessionId,
+
+              visitorId:
+                visitor.visitorId,
+
+              ipHash:
+                this.hashIp(ip),
+
+              userAgent:
+                data.browser ||
+                undefined,
+
+              country:
+                data.country ||
+                undefined,
+
+              city:
+                data.city ||
+                undefined,
+
+              device:
+                data.device ||
+                undefined,
+
+              browser:
+                data.browser ||
+                undefined,
+
+              os:
+                data.os ||
+                undefined,
+
+              referrer:
+                data.referrer ||
+                undefined,
+            },
+          },
+        );
+
+      /**
+       * Store the actual analytics event.
+       */
+      await this.prisma.webAnalyticsEvent.create(
+        {
+          data: {
+            event:
+              data.event,
+
+            path:
+              data.path ||
+              undefined,
+
+            title:
+              data.title ||
+              undefined,
+
+            url:
+              data.url ||
+              undefined,
+
+            visitorId:
+              visitor.visitorId,
+
+            sessionId:
+              session.sessionId,
+          },
+        },
+      );
     } catch (error) {
       this.logger.error(
-        'Automated daily Umami snapshot sync failed',
-        error instanceof Error ? error.stack : String(error),
+        'Failed to record analytics event.',
+        error instanceof Error
+          ? error.stack
+          : String(error),
       );
-    }
-  }
 
-  /**
-   * Make sure Umami is properly configured.
-   */
-  private assertConfigured(): void {
-    if (!this.apiKey || !this.websiteId) {
       throw new InternalServerErrorException(
-        'Website analytics is not configured. Please set UMAMI_API_KEY and UMAMI_WEBSITE_ID.',
+        'Unable to record analytics event.',
       );
     }
   }
 
   /**
-   * Headers used when communicating with Umami.
+   * Get analytics for a period.
    */
-  private getHeaders(): HeadersInit {
-    this.assertConfigured();
+  async getVisitorBreakdown(
+    days = 30,
+  ): Promise<AnalyticsResult> {
+    const normalizedDays =
+      Math.min(
+        Math.max(
+          Math.floor(
+            Number(days) || 30,
+          ),
+          1,
+        ),
+        365,
+      );
+
+    const now =
+      new Date();
+
+    const startAt =
+      new Date();
+
+    startAt.setDate(
+      startAt.getDate() -
+        normalizedDays,
+    );
+
+    /**
+     * Total unique visitors.
+     */
+    const totalVisitors =
+      await this.prisma.webAnalyticsEvent.findMany(
+        {
+          where: {
+            createdAt: {
+              gte: startAt,
+              lte: now,
+            },
+
+            visitorId: {
+              not: null,
+            },
+          },
+
+          distinct: [
+            'visitorId',
+          ],
+
+          select: {
+            visitorId: true,
+          },
+        },
+      );
+
+    /**
+     * Total sessions/visits.
+     */
+    const totalVisits =
+      await this.prisma.webAnalyticsSession.count(
+        {
+          where: {
+            startedAt: {
+              gte: startAt,
+              lte: now,
+            },
+          },
+        },
+      );
+
+    /**
+     * Total pageviews.
+     */
+    const totalPageviews =
+      await this.prisma.webAnalyticsEvent.count(
+        {
+          where: {
+            createdAt: {
+              gte: startAt,
+              lte: now,
+            },
+
+            event:
+              'page_view',
+          },
+        },
+      );
+
+    /**
+     * Determine first-time visitors.
+     */
+    const newVisitorRecords =
+      await this.prisma.webAnalyticsVisitor.findMany(
+        {
+          where: {
+            firstSeenAt: {
+              gte: startAt,
+              lte: now,
+            },
+          },
+
+          select: {
+            visitorId: true,
+          },
+        },
+      );
+
+    const newVisitorIds =
+      new Set(
+        newVisitorRecords.map(
+          (visitor) =>
+            visitor.visitorId,
+        ),
+      );
+
+    const newVisitors =
+      totalVisitors.filter(
+        (visitor) =>
+          visitor.visitorId &&
+          newVisitorIds.has(
+            visitor.visitorId,
+          ),
+      ).length;
+
+    /**
+     * Returning visitors are visitors
+     * who visited before the current period.
+     */
+    const returningVisitors =
+      totalVisitors.length -
+      newVisitors;
+
+    /**
+     * Previous period.
+     */
+    const previousPeriodEnd =
+      new Date(startAt);
+
+    previousPeriodEnd.setMilliseconds(
+      previousPeriodEnd.getMilliseconds() -
+        1,
+    );
+
+    const previousPeriodStart =
+      new Date(
+        previousPeriodEnd,
+      );
+
+    previousPeriodStart.setDate(
+      previousPeriodStart.getDate() -
+        normalizedDays,
+    );
+
+    const previousVisitors =
+      await this.prisma.webAnalyticsEvent.findMany(
+        {
+          where: {
+            createdAt: {
+              gte:
+                previousPeriodStart,
+
+              lte:
+                previousPeriodEnd,
+            },
+
+            visitorId: {
+              not: null,
+            },
+          },
+
+          distinct: [
+            'visitorId',
+          ],
+
+          select: {
+            visitorId: true,
+          },
+        },
+      );
+
+    const visitorsChangePercent =
+      previousVisitors.length > 0
+        ? Number(
+            (
+              (
+                (
+                  totalVisitors.length -
+                  previousVisitors.length
+                ) /
+                previousVisitors.length
+              ) *
+              100
+            ).toFixed(1),
+          )
+        : null;
 
     return {
-      Accept: 'application/json',
-      'x-umami-api-key': this.apiKey!,
+      newVisitors,
+
+      returningVisitors,
+
+      totalVisitors:
+        totalVisitors.length,
+
+      totalVisits,
+
+      totalPageviews,
+
+      visitorsChangePercent,
+
+      periodDays:
+        normalizedDays,
+
+      source:
+        'database',
     };
   }
 
   /**
-   * Fetch statistics from Umami.
+   * Generate today's daily snapshot.
+   *
+   * This is useful for historical dashboard
+   * reporting and faster queries.
    */
-  private async fetchUmamiStats(
-    startAt: number,
-    endAt: number,
-  ): Promise<UmamiStatsResponse> {
-    this.assertConfigured();
+  async syncDailySnapshot(
+    targetDate = new Date(),
+  ): Promise<void> {
+    const startOfDay =
+      new Date(targetDate);
 
-    const url = new URL(
-      `${this.apiBase}/websites/${this.websiteId}/stats`,
+    startOfDay.setHours(
+      0,
+      0,
+      0,
+      0,
     );
 
-    url.searchParams.set('startAt', String(startAt));
-    url.searchParams.set('endAt', String(endAt));
+    const endOfDay =
+      new Date(targetDate);
 
-    let response: Response;
-
-    try {
-      response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-    } catch (error) {
-      this.logger.error(
-        'Unable to connect to Umami API',
-        error instanceof Error ? error.stack : String(error),
-      );
-
-      throw new InternalServerErrorException(
-        'Unable to connect to website analytics service.',
-      );
-    }
-
-    if (!response.ok) {
-      const responseText = await response.text().catch(() => '');
-
-      this.logger.error(
-        `Umami API returned ${response.status}: ${responseText}`,
-      );
-
-      throw new InternalServerErrorException(
-        `Website analytics service returned HTTP ${response.status}.`,
-      );
-    }
+    endOfDay.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
 
     try {
-      return (await response.json()) as UmamiStatsResponse;
-    } catch (error) {
-      this.logger.error(
-        'Failed to parse Umami API response',
-        error instanceof Error ? error.stack : String(error),
-      );
+      const visitors =
+        await this.prisma.webAnalyticsEvent.findMany(
+          {
+            where: {
+              createdAt: {
+                gte: startOfDay,
+                lte: endOfDay,
+              },
 
-      throw new InternalServerErrorException(
-        'Invalid response received from website analytics service.',
-      );
-    }
-  }
+              visitorId: {
+                not: null,
+              },
+            },
 
-  private startOfDay(date: Date): Date {
-    const result = new Date(date);
-    result.setHours(0, 0, 0, 0);
-    return result;
-  }
+            distinct: [
+              'visitorId',
+            ],
 
-  private endOfDay(date: Date): Date {
-    const result = new Date(date);
-    result.setHours(23, 59, 59, 999);
-    return result;
-  }
+            select: {
+              visitorId: true,
+            },
+          },
+        );
 
-  /**
-   * Sync one day's analytics from Umami into PostgreSQL.
-   */
-  async syncDailySnapshot(targetDate = new Date()): Promise<void> {
-    this.assertConfigured();
+      const totalVisits =
+        await this.prisma.webAnalyticsSession.count(
+          {
+            where: {
+              startedAt: {
+                gte: startOfDay,
+                lte: endOfDay,
+              },
+            },
+          },
+        );
 
-    const startOfDay = this.startOfDay(targetDate);
-    const endOfDay = this.endOfDay(targetDate);
+      const totalPageviews =
+        await this.prisma.webAnalyticsEvent.count(
+          {
+            where: {
+              createdAt: {
+                gte: startOfDay,
+                lte: endOfDay,
+              },
 
-    try {
-      const stats = await this.fetchUmamiStats(
-        startOfDay.getTime(),
-        endOfDay.getTime(),
-      );
+              event:
+                'page_view',
+            },
+          },
+        );
 
-      const totalVisitors = Number(stats.visitors ?? 0);
-      const totalVisits = Number(stats.visits ?? 0);
-      const totalPageviews = Number(stats.pageviews ?? 0);
-      const newVisitors = totalVisitors;
-      const returningVisits = 0;
+      const newVisitors =
+        await this.prisma.webAnalyticsVisitor.count(
+          {
+            where: {
+              firstSeenAt: {
+                gte: startOfDay,
+                lte: endOfDay,
+              },
+            },
+          },
+        );
 
-      await this.prisma.webAnalyticsSnapshot.upsert({
-        where: { date: startOfDay },
-        update: {
-          totalVisitors,
-          totalVisits,
-          totalPageviews,
-          newVisitors,
-          returningVisits,
+      const totalVisitors =
+        visitors.length;
+
+      const returningVisitors =
+        Math.max(
+          totalVisitors -
+            newVisitors,
+          0,
+        );
+
+      await this.prisma.webAnalyticsSnapshot.upsert(
+        {
+          where: {
+            date: startOfDay,
+          },
+
+          update: {
+            totalVisitors,
+
+            totalVisits,
+
+            totalPageviews,
+
+            newVisitors,
+
+            returningVisits:
+              returningVisitors,
+          },
+
+          create: {
+            date:
+              startOfDay,
+
+            totalVisitors,
+
+            totalVisits,
+
+            totalPageviews,
+
+            newVisitors,
+
+            returningVisits:
+              returningVisitors,
+          },
         },
-        create: {
-          date: startOfDay,
-          totalVisitors,
-          totalVisits,
-          totalPageviews,
-          newVisitors,
-          returningVisits,
-        },
-      });
+      );
 
       this.logger.log(
-        `Analytics snapshot synced successfully for ${
-          startOfDay.toISOString().split('T')[0]
+        `Analytics snapshot generated for ${
+          startOfDay
+            .toISOString()
+            .split('T')[0]
         }`,
       );
     } catch (error) {
       this.logger.error(
-        `Failed to sync Umami analytics for ${
-          startOfDay.toISOString().split('T')[0]
-        }`,
-        error instanceof Error ? error.stack : String(error),
+        'Failed to generate analytics snapshot.',
+        error instanceof Error
+          ? error.stack
+          : String(error),
       );
 
       throw error;
@@ -206,144 +580,36 @@ export class WebAnalyticsService {
   }
 
   /**
-   * Get visitor analytics.
+   * Automatically generate yesterday's
+   * completed analytics snapshot.
    */
-  async getVisitorBreakdown(days = 30): Promise<AnalyticsResult> {
-    this.assertConfigured();
-
-    const normalizedDays = Math.min(
-      Math.max(Math.floor(Number(days) || 30), 1),
-      365,
+  @Cron(
+    CronExpression.EVERY_DAY_AT_MIDNIGHT,
+  )
+  async handleDailyAnalyticsCron(): Promise<void> {
+    this.logger.log(
+      'Running daily analytics snapshot...',
     );
 
-    const endAt = new Date();
-    const startAt = new Date();
-    startAt.setDate(startAt.getDate() - normalizedDays);
-    startAt.setHours(0, 0, 0, 0);
+    const yesterday =
+      new Date();
 
-    const snapshots = await this.prisma.webAnalyticsSnapshot.findMany({
-      where: {
-        date: {
-          gte: startAt,
-          lte: endAt,
-        },
-      },
-      orderBy: {
-        date: 'asc',
-      },
-    });
+    yesterday.setDate(
+      yesterday.getDate() -
+        1,
+    );
 
-    if (snapshots.length > 0) {
-      const totalVisitors = snapshots.reduce(
-        (acc, snapshot) => acc + snapshot.totalVisitors,
-        0,
+    try {
+      await this.syncDailySnapshot(
+        yesterday,
       );
-
-      const totalVisits = snapshots.reduce(
-        (acc, snapshot) => acc + snapshot.totalVisits,
-        0,
+    } catch (error) {
+      this.logger.error(
+        'Daily analytics snapshot failed.',
+        error instanceof Error
+          ? error.stack
+          : String(error),
       );
-
-      const totalPageviews = snapshots.reduce(
-        (acc, snapshot) => acc + snapshot.totalPageviews,
-        0,
-      );
-
-      const newVisitors = snapshots.reduce(
-        (acc, snapshot) => acc + snapshot.newVisitors,
-        0,
-      );
-
-      const returningVisits = snapshots.reduce(
-        (acc, snapshot) => acc + snapshot.returningVisits,
-        0,
-      );
-
-      const previousPeriodStart = new Date(startAt);
-      previousPeriodStart.setDate(
-        previousPeriodStart.getDate() - normalizedDays,
-      );
-
-      const previousPeriodEnd = new Date(startAt);
-      previousPeriodEnd.setMilliseconds(
-        previousPeriodEnd.getMilliseconds() - 1,
-      );
-
-      const previousSnapshots = await this.prisma.webAnalyticsSnapshot.findMany({
-        where: {
-          date: {
-            gte: previousPeriodStart,
-            lte: previousPeriodEnd,
-          },
-        },
-      });
-
-      const previousVisitors = previousSnapshots.reduce(
-        (acc, snapshot) => acc + snapshot.totalVisitors,
-        0,
-      );
-
-      const visitorsChangePercent =
-        previousVisitors > 0
-          ? Number(
-              (
-                ((totalVisitors - previousVisitors) / previousVisitors) *
-                100
-              ).toFixed(1),
-            )
-          : null;
-
-      return {
-        newVisitors,
-        returningVisits,
-        totalVisitors,
-        totalVisits,
-        totalPageviews,
-        visitorsChangePercent,
-        periodDays: normalizedDays,
-        source: 'database',
-      };
     }
-
-    return this.fetchDirectFromUmami(normalizedDays);
-  }
-
-  private async fetchDirectFromUmami(days: number): Promise<AnalyticsResult> {
-    this.assertConfigured();
-
-    const endAt = Date.now();
-    const startAt = endAt - days * 24 * 60 * 60 * 1000;
-
-    const stats = await this.fetchUmamiStats(startAt, endAt);
-
-    const totalVisitors = Number(stats.visitors ?? 0);
-    const totalVisits = Number(stats.visits ?? 0);
-    const totalPageviews = Number(stats.pageviews ?? 0);
-
-    const previousVisitors = Number(stats.comparison?.visitors ?? 0);
-
-    const visitorsChangePercent =
-      previousVisitors > 0
-        ? Number(
-            (
-              ((totalVisitors - previousVisitors) / previousVisitors) *
-              100
-            ).toFixed(1),
-          )
-        : null;
-
-    const newVisitors = totalVisitors;
-    const returningVisits = 0;
-
-    return {
-      newVisitors,
-      returningVisits,
-      totalVisitors,
-      totalVisits,
-      totalPageviews,
-      visitorsChangePercent,
-      periodDays: days,
-      source: 'umami',
-    };
   }
 }

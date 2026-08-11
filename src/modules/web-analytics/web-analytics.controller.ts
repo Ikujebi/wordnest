@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
   Post,
@@ -14,27 +16,84 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 
 import { Role } from '@prisma/client';
 
+import { TrackAnalyticsEventDto } from '../../../types/visits';
+
 @Controller('web-analytics')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class WebAnalyticsController {
   constructor(
     private readonly webAnalyticsService: WebAnalyticsService,
   ) {}
 
   /**
-   * GET /web-analytics/visitors
+   * PUBLIC ANALYTICS TRACKING ENDPOINT
    *
-   * Example:
-   * /web-analytics/visitors?days=30
+   * POST /web-analytics/track
+   *
+   * This endpoint is called by the public website.
+   */
+  @Post('track')
+  async trackEvent(
+    @Body() body: TrackAnalyticsEventDto,
+  ) {
+    if (!body.visitorId) {
+      throw new BadRequestException(
+        'visitorId is required.',
+      );
+    }
+
+    if (!body.sessionId) {
+      throw new BadRequestException(
+        'sessionId is required.',
+      );
+    }
+
+    if (!body.event) {
+      throw new BadRequestException(
+        'event is required.',
+      );
+    }
+
+    await this.webAnalyticsService.trackEvent(
+      body,
+    );
+
+    return {
+      success: true,
+    };
+  }
+
+  /**
+   * ADMIN ANALYTICS
+   *
+   * GET /web-analytics/visitors
    */
   @Get('visitors')
+  @UseGuards(
+    JwtAuthGuard,
+    RolesGuard,
+  )
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+  )
   async getVisitorBreakdown(
     @Query('days') days?: string,
   ) {
-    const parsedDays = days
-      ? Number(days)
-      : 30;
+    let parsedDays = 30;
+
+    if (days !== undefined) {
+      parsedDays = Number(days);
+
+      if (
+        !Number.isInteger(parsedDays) ||
+        parsedDays < 1 ||
+        parsedDays > 365
+      ) {
+        throw new BadRequestException(
+          'days must be an integer between 1 and 365.',
+        );
+      }
+    }
 
     return this.webAnalyticsService.getVisitorBreakdown(
       parsedDays,
@@ -42,17 +101,25 @@ export class WebAnalyticsController {
   }
 
   /**
-   * POST /web-analytics/sync
+   * MANUAL DAILY SNAPSHOT
    *
-   * Manually synchronize today's analytics.
+   * POST /web-analytics/sync
    */
   @Post('sync')
+  @UseGuards(
+    JwtAuthGuard,
+    RolesGuard,
+  )
+  @Roles(
+    Role.SUPER_ADMIN,
+    Role.ADMIN,
+  )
   async triggerSync() {
     await this.webAnalyticsService.syncDailySnapshot();
 
     return {
       message:
-        'Daily analytics snapshot synced successfully.',
+        'Daily analytics snapshot generated successfully.',
     };
   }
 }
