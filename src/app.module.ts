@@ -12,7 +12,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { CommonModule } from './common/common.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
 import { SearchModule } from './modules/search/search.module'; 
-
+import { ScheduleModule } from '@nestjs/schedule';
 // 🔥 1. IMPORT YOUR THREE NEW ROLE MODULES HERE
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -30,7 +30,7 @@ import { WebAnalyticsModule } from './modules/web-analytics/web-analytics.module
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       {
         ttl: 60_000,
