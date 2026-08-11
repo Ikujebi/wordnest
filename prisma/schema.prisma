@@ -640,7 +640,19 @@ model CommunicationLog {
 
   @@index([communicationId])
 }
+model WebAnalyticsSnapshot {
+  id               String   @id @default(uuid())
+  date             DateTime @unique @db.Date // Truncated to YYYY-MM-DD
+  totalVisitors    Int      @default(0)
+  totalVisits      Int      @default(0)
+  totalPageviews   Int      @default(0)
+  newVisitors      Int      @default(0)
+  returningVisits  Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
+  @@index([date])
+}
 model Subscriber {
   id               String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   firstName        String?
