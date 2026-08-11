@@ -26,6 +26,7 @@ import {NotificationsModule,} from './modules/notifications/notification.module'
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { WebAnalyticsModule } from './modules/web-analytics/web-analytics.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
+import { EventsModule } from './modules/events/events.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -54,6 +55,7 @@ import { DepartmentsModule } from './modules/departments/departments.module';
     AuditLogModule,
     WebAnalyticsModule,
     DepartmentsModule,
+    EventsModule,
   ],
 
   controllers: [AppController],
