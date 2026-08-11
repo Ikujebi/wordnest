@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+import { Role } from '@prisma/client';
 
 export class MemberQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1)
@@ -10,4 +11,10 @@ export class MemberQueryDto {
 
   @IsOptional() @IsString()
   search?: string;
+
+  @IsOptional() @IsEnum(Role)
+  role?: Role;
+
+  @IsOptional() @IsString()
+  status?: 'ACTIVE' | 'SUSPENDED' | 'PENDING';
 }

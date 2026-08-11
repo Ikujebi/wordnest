@@ -25,6 +25,7 @@ import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor
 import {NotificationsModule,} from './modules/notifications/notification.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { WebAnalyticsModule } from './modules/web-analytics/web-analytics.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -52,6 +53,7 @@ import { WebAnalyticsModule } from './modules/web-analytics/web-analytics.module
     MemberModule,
     AuditLogModule,
     WebAnalyticsModule,
+    DepartmentsModule,
   ],
 
   controllers: [AppController],

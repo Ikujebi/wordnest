@@ -55,6 +55,10 @@ export class AdminService {
             ],
           }
         : {}),
+      ...(query.role ? { user: { role: query.role } } : {}),
+      ...(query.status === 'ACTIVE' ? { user: { isActive: true } } : {}),
+      ...(query.status === 'SUSPENDED' ? { user: { isActive: false } } : {}),
+      ...(query.status === 'PENDING' ? { userId: null } : {}),
     };
 
     const [items, total] = await this.prisma.$transaction([
