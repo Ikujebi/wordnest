@@ -4,64 +4,38 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
 import { Request } from 'express';
 
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+
+function extractRefreshTokenFromCookie(req: Request): string | null {
+  return req?.cookies?.refreshToken ?? null;
+}
 
 @Injectable()
 export class RefreshTokenStrategy extends PassportStrategy(
   Strategy,
   'jwt-refresh',
 ) {
-  constructor(
-    configService: ConfigService,
-  ) {
+  constructor(configService: ConfigService) {
     super({
-      jwtFromRequest:
-        ExtractJwt.fromAuthHeaderAsBearerToken(),
-
+      jwtFromRequest: extractRefreshTokenFromCookie,
       ignoreExpiration: false,
-
-      secretOrKey:
-        configService.getOrThrow<string>(
-          'JWT_REFRESH_SECRET',
-        ),
-
+      secretOrKey: configService.getOrThrow<string>('JWT_REFRESH_SECRET'),
       passReqToCallback: true,
     });
   }
 
-  async validate(
-    req: Request,
-    payload: JwtPayload,
-  ) {
-    const authorization =
-      req.headers.authorization;
+  async validate(req: Request, payload: JwtPayload) {
+    const refreshToken = extractRefreshTokenFromCookie(req);
 
-    if (!authorization) {
-      throw new UnauthorizedException(
-        'Refresh token is missing.',
-      );
-    }
-
-    const [scheme, refreshToken] =
-      authorization.split(' ');
-
-    if (
-      scheme !== 'Bearer' ||
-      !refreshToken
-    ) {
-      throw new UnauthorizedException(
-        'Invalid authorization header.',
-      );
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is missing.');
     }
 
     if (!payload.sub) {
-      throw new UnauthorizedException(
-        'Invalid refresh token payload.',
-      );
+      throw new UnauthorizedException('Invalid refresh token payload.');
     }
 
     return {

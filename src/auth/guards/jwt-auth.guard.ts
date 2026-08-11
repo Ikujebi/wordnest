@@ -10,21 +10,15 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  constructor(
-    private readonly reflector: Reflector,
-  ) {
+  constructor(private readonly reflector: Reflector) {
     super();
   }
 
   canActivate(context: ExecutionContext) {
-    const isPublic =
-      this.reflector.getAllAndOverride<boolean>(
-        IS_PUBLIC_KEY,
-        [
-          context.getHandler(),
-          context.getClass(),
-        ],
-      );
+    const isPublic = this.reflector.getAllAndOverride<boolean>(
+      IS_PUBLIC_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
     if (isPublic) {
       return true;
@@ -33,19 +27,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return super.canActivate(context);
   }
 
-  handleRequest(
-    err: unknown,
-    user: any,
-  ) {
+  handleRequest(err: unknown, user: any, info: any) {
     if (err || !user) {
-      throw (
-        err ??
-        new UnauthorizedException(
-          'Authentication required.',
-        )
-      );
+      const reason = info?.message ?? info?.name ?? 'unknown';
+      throw err ?? new UnauthorizedException(`Authentication required (${reason}).`);
     }
-
     return user;
   }
 }
