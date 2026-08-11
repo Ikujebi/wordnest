@@ -16,7 +16,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 
 import { Role } from '@prisma/client';
 
-import { TrackAnalyticsEventDto } from '../../../types/visits';
+import type { TrackAnalyticsEventDto } from '../../../types/visits';
 
 @Controller('web-analytics')
 export class WebAnalyticsController {
@@ -53,9 +53,7 @@ export class WebAnalyticsController {
       );
     }
 
-    await this.webAnalyticsService.trackEvent(
-      body,
-    );
+    await this.webAnalyticsService.trackEvent(body);
 
     return {
       success: true,
@@ -66,6 +64,9 @@ export class WebAnalyticsController {
    * ADMIN ANALYTICS
    *
    * GET /web-analytics/visitors
+   *
+   * Example:
+   * GET /web-analytics/visitors?days=30
    */
   @Get('visitors')
   @UseGuards(
@@ -104,6 +105,8 @@ export class WebAnalyticsController {
    * MANUAL DAILY SNAPSHOT
    *
    * POST /web-analytics/sync
+   *
+   * Requires ADMIN or SUPER_ADMIN.
    */
   @Post('sync')
   @UseGuards(
@@ -123,3 +126,4 @@ export class WebAnalyticsController {
     };
   }
 }
+
