@@ -12,7 +12,7 @@ import { Role } from '@prisma/client';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(private readonly adminService: AdminService) { }
 
   @Get('metrics/summary')
   getStats() {
@@ -33,7 +33,10 @@ export class AdminController {
   createMember(@Req() req: any, @Body() dto: CreateMemberDto) {
     return this.adminService.createMember(dto, req.user.id);
   }
-
+  @Get('metrics/growth')
+  getMemberGrowth() {
+    return this.adminService.getMemberGrowth();
+  }
   @Patch('members/:id')
   updateMember(
     @Param('id', ParseUUIDPipe) id: string,
@@ -47,4 +50,5 @@ export class AdminController {
   deleteMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.adminService.deleteMember(id, req.user.id);
   }
+
 }

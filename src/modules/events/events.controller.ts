@@ -5,6 +5,7 @@ import {
   Patch,
   Delete,
   Body,
+  Query,
   Param,
   ParseUUIDPipe,
   UseGuards,
@@ -98,5 +99,12 @@ export class EventsController {
   @Delete(':id/rsvp')
   async cancelRsvp(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.eventsService.cancelRsvp(id, req.user.id);
+  }
+
+    @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @Get('attendance/weekly')
+  getWeeklyAttendance(@Query('weeks') weeks?: string) {
+    return this.eventsService.getWeeklyAttendance(weeks ? Number(weeks) : undefined);
   }
 }

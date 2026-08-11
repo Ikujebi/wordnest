@@ -410,4 +410,48 @@ export class EventsService {
       orderBy: { startDate: 'desc' },
     });
   }
+  /**
+   * Weekly PRESENT-attendance counts across events, most recent `weeks` weeks.
+   * Excludes REGISTERED (RSVP intent) and ABSENT/EXCUSED — this counts actual
+   * check-ins only, grouped by the ISO week of the event's startDate.
+   */
+  async getWeeklyAttendance(weeks = 8) {
+    const since = new Date();
+    since.setDate(since.getDate() - weeks * 7);
+
+    const records = await this.prisma.attendance.findMany({
+      where: {
+        status: 'PRESENT',
+        event: { startDate: { gte: since }, deletedAt: null },
+      },
+      select: { event: { select: { startDate: true } } },
+    });
+
+    // Group by ISO week (Mon-Sun) of the event date
+    const buckets = new Map<string, { weekStart: Date; count: number }>();
+
+    for (const record of records) {
+      const date = new Date(record.event.startDate);
+      const day = date.getDay();
+      const diffToMonday = day === 0 ? -6 : 1 - day;
+      const weekStart = new Date(date);
+      weekStart.setHours(0, 0, 0, 0);
+      weekStart.setDate(date.getDate() + diffToMonday);
+
+      const key = weekStart.toISOString();
+      const existing = buckets.get(key);
+      if (existing) existing.count += 1;
+      else buckets.set(key, { weekStart, count: 1 });
+    }
+
+    const sorted = Array.from(buckets.values()).sort(
+      (a, b) => a.weekStart.getTime() - b.weekStart.getTime(),
+    );
+
+    return sorted.slice(-weeks).map((bucket, idx, arr) => ({
+      label: `Wk ${idx + 1}`,
+      weekStart: bucket.weekStart.toISOString(),
+      count: bucket.count,
+    }));
+  }
 }

@@ -213,4 +213,37 @@ export class AdminService {
 
     return { message: 'Member removed successfully.' };
   }
+  /**
+   * Total active members and month-over-month growth rate, computed from
+   * real Member.createdAt timestamps — no fabricated targets or percentages.
+   */
+  async getMemberGrowth() {
+    const now = new Date();
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    const [totalMembers, joinedThisMonth, joinedLastMonth] = await Promise.all([
+      this.prisma.member.count({ where: { deletedAt: null } }),
+      this.prisma.member.count({
+        where: { deletedAt: null, createdAt: { gte: startOfThisMonth } },
+      }),
+      this.prisma.member.count({
+        where: { deletedAt: null, createdAt: { gte: startOfLastMonth, lt: startOfThisMonth } },
+      }),
+    ]);
+
+    const growthRatePercent =
+      joinedLastMonth > 0
+        ? Number((((joinedThisMonth - joinedLastMonth) / joinedLastMonth) * 100).toFixed(1))
+        : joinedThisMonth > 0
+        ? 100
+        : 0;
+
+    return {
+      totalMembers,
+      joinedThisMonth,
+      joinedLastMonth,
+      growthRatePercent,
+    };
+  }
 }
