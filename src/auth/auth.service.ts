@@ -144,17 +144,7 @@ export class AuthService {
         data: { lastLoginAt: new Date() },
       });
     });
-
-    // 2. Audit Log -> Successful Login
-    await this.auditLogService.createLog(
-      { id: user.id },
-      {
-        action: AuditAction.LOGIN,
-        entity: 'User',
-        entityId: user.id,
-        description: `User ${user.email} logged in successfully.`,
-      },
-    );
+ 
 
     this.logger.log(`User ${user.email} logged in successfully.`);
     return { user: authenticatedUser, tokens };
@@ -255,16 +245,6 @@ export class AuthService {
       data: { refreshTokenHash: null },
     });
 
-    // Audit Log -> Logout
-    await this.auditLogService.createLog(
-      { id: userId },
-      {
-        action: AuditAction.LOGOUT,
-        entity: 'User',
-        entityId: userId,
-        description: `User logged out.`,
-      },
-    );
 
     this.logger.log(`User ${userId} logged out successfully.`);
     return { message: 'Logged out successfully.' };
