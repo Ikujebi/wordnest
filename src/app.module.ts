@@ -28,6 +28,8 @@ import { WebAnalyticsModule } from './modules/web-analytics/web-analytics.module
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { EventsModule } from './modules/events/events.module';
 import { MinistriesModule } from './modules/ministries/ministries.module';
+import { MediaGalleryModule } from './modules/MediaGallery/mediaGallary.module';
+import { LeadershipModule } from './modules/leadership/leadership.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -58,6 +60,8 @@ import { MinistriesModule } from './modules/ministries/ministries.module';
     DepartmentsModule,
     EventsModule,
     MinistriesModule,
+    MediaGalleryModule,
+    LeadershipModule,
   ],
 
   controllers: [AppController],
