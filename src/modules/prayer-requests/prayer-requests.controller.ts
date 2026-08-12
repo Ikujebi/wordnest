@@ -6,136 +6,122 @@ import {
   Param,
   Patch,
   Delete,
-  Query,
-  Req,
   UseGuards,
+  Req,
 } from '@nestjs/common';
-
 import { PrayerRequestsService } from './prayer-requests.service';
-
 import { CreatePrayerRequestDto } from './dto/create-prayer-request.dto';
 import { UpdatePrayerRequestDto } from './dto/update-prayer-request.dto';
 import { AssignPrayerRequestDto } from './dto/assign-prayer-request.dto';
 import { PrayerRequestNoteDto } from './dto/prayer-request-note.dto';
+import { UpdatePrayerStatusDto } from './dto/update-prayer-status.dto';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { PrayerAccessGuard } from './guards/prayer-access.guard';
 
 @Controller('prayer-requests')
 export class PrayerRequestsController {
-  constructor(
-    private readonly prayerRequestsService: PrayerRequestsService,
-  ) {}
+  constructor(private readonly prayerRequestsService: PrayerRequestsService) {}
 
   /**
-   * Public website submission
-   *
-   * POST /api/prayer-requests
+   * Public submission route — no auth required. Anyone on the public
+   * website can submit a prayer request.
    */
   @Post()
-  create(@Body() dto: CreatePrayerRequestDto) {
-    return this.prayerRequestsService.create(dto);
+  create(@Body() dto: CreatePrayerRequestDto, @Req() req: any) {
+    const actorId = req.user?.id;
+    return this.prayerRequestsService.create(dto, actorId);
   }
 
   /**
-   * Admin get all requests
-   *
-   * GET /api/prayer-requests
+   * Full list — Super Admin or Prayer Department leader only.
    */
+  @UseGuards(JwtAuthGuard, PrayerAccessGuard)
   @Get()
-  findAll(
-    @Query('status') status?: string,
-    @Query('category') category?: string,
-  ) {
+  findAll() {
     return this.prayerRequestsService.findAll();
   }
 
   /**
-   * Get list of eligible staff/workers for assignment
-   *
-   * GET /api/prayer-requests/assignees
-   * (Placed above :id to prevent route shadowing)
+   * Self-service — any authenticated user sees only what's assigned to
+   * them. This is how regular Prayer Department workers interact with
+   * assignments without getting the full management view.
    */
-  @Get('assignees')
+  @UseGuards(JwtAuthGuard)
+  @Get('my-assigned')
+  findMyAssigned(@Req() req: any) {
+    return this.prayerRequestsService.findMyAssigned(req.user.id);
+  }
+
+  /**
+   * Assignee list for the "Assign to" dropdown — leader/super-admin only,
+   * since only they perform assignment.
+   */
+  @UseGuards(JwtAuthGuard, PrayerAccessGuard)
+  @Get('eligible-assignees')
   getEligibleAssignees() {
     return this.prayerRequestsService.getEligibleAssignees();
   }
 
   /**
-   * Admin view single prayer request
-   *
-   * GET /api/prayer-requests/:id
+   * Single item — accessible to full managers OR the assignee themself.
    */
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string, @Req() req: any) {
+    await this.prayerRequestsService.assertCanAccess(id, req.user.id, req.user.role);
     return this.prayerRequestsService.findOne(id);
   }
 
-  /**
-   * Update prayer details
-   *
-   * PATCH /api/prayer-requests/:id
-   */
+  @UseGuards(JwtAuthGuard, PrayerAccessGuard)
   @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body() dto: UpdatePrayerRequestDto,
-  ) {
-    return this.prayerRequestsService.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdatePrayerRequestDto, @Req() req: any) {
+    return this.prayerRequestsService.update(id, dto, req.user.id);
   }
 
   /**
-   * Assign prayer worker/team member
-   *
-   * PATCH /api/prayer-requests/:id/assign
+   * Dedicated status endpoint (matches frontend's updatePrayerStatus) —
+   * accessible to managers or the assignee working the request.
    */
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/status')
+  async updateStatus(@Param('id') id: string, @Body() dto: UpdatePrayerStatusDto, @Req() req: any) {
+    await this.prayerRequestsService.assertCanAccess(id, req.user.id, req.user.role);
+    return this.prayerRequestsService.updateStatus(id, dto.status, req.user.id);
+  }
+
+  /**
+   * Assignment is exclusively a manager action.
+   */
+  @UseGuards(JwtAuthGuard, PrayerAccessGuard)
   @Patch(':id/assign')
-  assign(
-    @Param('id') id: string,
-    @Body() dto: AssignPrayerRequestDto,
-  ) {
-    return this.prayerRequestsService.assignPrayer(id, dto);
+  assignPrayer(@Param('id') id: string, @Body() dto: AssignPrayerRequestDto, @Req() req: any) {
+    return this.prayerRequestsService.assignPrayer(id, dto, req.user.id);
   }
 
-  /**
-   * Mark prayer as answered
-   *
-   * PATCH /api/prayer-requests/:id/answered
-   */
-  @Patch(':id/answered')
-  answered(
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/mark-answered')
+  async markAnswered(
     @Param('id') id: string,
-    @Body('testimony') testimony?: string,
-  ) {
-    return this.prayerRequestsService.markAnswered(id, testimony);
-  }
-
-  /**
-   * Prayer team sends message / adds note
-   *
-   * POST /api/prayer-requests/:id/notes
-   */
-  @Post(':id/notes')
-  addNote(
-    @Param('id') id: string,
-    @Body() dto: PrayerRequestNoteDto,
+    @Body('testimony') testimony: string,
     @Req() req: any,
   ) {
-    const authorId = req?.user?.id;
-    const senderName = req?.user?.fullName || req?.user?.firstName;
+    await this.prayerRequestsService.assertCanAccess(id, req.user.id, req.user.role);
+    return this.prayerRequestsService.markAnswered(id, testimony, req.user.id);
+  }
 
-    return this.prayerRequestsService.addNote(
-      id,
-      dto,
-      authorId,
-      senderName,
-    );
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/notes')
+  async addNote(@Param('id') id: string, @Body() dto: PrayerRequestNoteDto, @Req() req: any) {
+    await this.prayerRequestsService.assertCanAccess(id, req.user.id, req.user.role);
+    return this.prayerRequestsService.addNote(id, dto, req.user.id, req.user.fullName);
   }
 
   /**
-   * Archive prayer request
-   *
-   * DELETE /api/prayer-requests/:id
+   * Archiving/removal is exclusively a manager action.
    */
+  @UseGuards(JwtAuthGuard, PrayerAccessGuard)
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.prayerRequestsService.remove(id);
+  remove(@Param('id') id: string, @Req() req: any) {
+    return this.prayerRequestsService.remove(id, req.user.id);
   }
 }

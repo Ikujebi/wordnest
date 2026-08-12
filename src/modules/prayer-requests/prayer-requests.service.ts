@@ -34,11 +34,10 @@ export class PrayerRequestsService {
     return actorId ? { id: actorId } : {};
   }
 
-  /**
-   * Get all eligible users who can be assigned to a prayer request:
-   * 1. SUPER_ADMINs
-   * 2. ADMINs
-   * 3. Workers linked to the Prayer Department
+ /**
+   * Eligible assignees: SUPER_ADMIN (always) or any active DepartmentMember
+   * of the Prayer department (LEADER or MEMBER). ADMIN role alone is no
+   * longer sufficient — matches PrayerAccessGuard exactly.
    */
   async getEligibleAssignees() {
     return this.prisma.user.findMany({
@@ -47,16 +46,17 @@ export class PrayerRequestsService {
         deletedAt: null,
         OR: [
           { role: Role.SUPER_ADMIN },
-          { role: Role.ADMIN },
           {
             member: {
-              worker: {
-                isActive: true,
-                deletedAt: null,
-                department: {
-                  slug: {
-                    in: ['prayer', 'intercessory-prayer', 'prayer-department'],
-                    mode: 'insensitive',
+              departments: {
+                some: {
+                  status: 'ACTIVE',
+                  deletedAt: null,
+                  department: {
+                    slug: {
+                      in: ['prayer', 'intercessory-prayer', 'prayer-department'],
+                      mode: 'insensitive',
+                    },
                   },
                 },
               },
@@ -71,20 +71,23 @@ export class PrayerRequestsService {
         role: true,
         member: {
           select: {
-            worker: {
-              select: {
-                position: true,
+            departments: {
+              where: {
+                status: 'ACTIVE',
+                deletedAt: null,
                 department: {
-                  select: { name: true },
+                  slug: { in: ['prayer', 'intercessory-prayer', 'prayer-department'], mode: 'insensitive' },
                 },
+              },
+              select: {
+                role: true,
+                department: { select: { name: true } },
               },
             },
           },
         },
       },
-      orderBy: {
-        fullName: 'asc',
-      },
+      orderBy: { fullName: 'asc' },
     });
   }
 
@@ -222,14 +225,12 @@ export class PrayerRequestsService {
   /**
    * Assign prayer request with strict role & department validation
    */
-  async assignPrayer(
-    id: string,
-    dto: AssignPrayerRequestDto,
-    actorId?: string,
-  ) {
+  async assignPrayer(id: string, dto: AssignPrayerRequestDto, actorId?: string) {
     const prayer = await this.findOne(id);
 
-    // Validate that the assigned target is a SUPER_ADMIN, ADMIN, or Prayer Dept Worker
+    // Same DepartmentMember-based check as getEligibleAssignees — keeps the
+    // "who shows in the dropdown" and "who's actually allowed" definitions
+    // from drifting apart.
     const assignee = await this.prisma.user.findFirst({
       where: {
         id: dto.assignedToId,
@@ -237,16 +238,17 @@ export class PrayerRequestsService {
         deletedAt: null,
         OR: [
           { role: Role.SUPER_ADMIN },
-          { role: Role.ADMIN },
           {
             member: {
-              worker: {
-                isActive: true,
-                deletedAt: null,
-                department: {
-                  slug: {
-                    in: ['prayer', 'intercessory-prayer', 'prayer-department'],
-                    mode: 'insensitive',
+              departments: {
+                some: {
+                  status: 'ACTIVE',
+                  deletedAt: null,
+                  department: {
+                    slug: {
+                      in: ['prayer', 'intercessory-prayer', 'prayer-department'],
+                      mode: 'insensitive',
+                    },
                   },
                 },
               },
@@ -258,31 +260,21 @@ export class PrayerRequestsService {
 
     if (!assignee) {
       throw new BadRequestException(
-        'Selected user is not authorized to receive prayer assignments. User must be a Super Admin, Admin, or an active worker in the Prayer Department.',
+        'Selected user is not authorized to receive prayer assignments. User must be a Super Admin or an active member of the Prayer Department.',
       );
     }
 
     const updated = await this.prisma.prayerRequest.update({
       where: { id },
-      data: {
-        assignedToId: dto.assignedToId,
-        status: PrayerRequestStatus.ASSIGNED,
-      },
-      include: {
-        assignedTo: true,
-      },
+      data: { assignedToId: dto.assignedToId, status: PrayerRequestStatus.ASSIGNED },
+      include: { assignedTo: true },
     });
 
-    // Pass the assignee's full name (or fallback) to the communication service
     if (prayer.email) {
       const assigneeName = assignee.fullName || 'Prayer Team Member';
-      await this.prayerCommunicationService.sendAssignedEmail(
-        updated,
-        assigneeName,
-      );
+      await this.prayerCommunicationService.sendAssignedEmail(updated, assigneeName);
     }
 
-    // Notify assigned user directly using notify (takes userId)
     await this.notificationService.notify(dto.assignedToId, {
       title: 'Prayer Assignment',
       message: `Prayer request "${prayer.subject}" has been assigned to you.`,
@@ -439,4 +431,92 @@ export class PrayerRequestsService {
 
     return archived;
   }
+  /**
+   * Prayer requests assigned to the currently authenticated user — for
+   * regular Prayer Department workers who can work assignments but don't
+   * get the full management view.
+   */
+  async findMyAssigned(userId: string) {
+    return this.prisma.prayerRequest.findMany({
+      where: { assignedToId: userId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        notes: { orderBy: { createdAt: 'desc' } },
+      },
+    });
+  }
+
+  /**
+   * Authorization check for single-item access: full managers (checked via
+   * PrayerAccessGuard upstream for list/assign routes) always pass; for
+   * detail/status/notes routes we additionally allow the assignee themself.
+   */
+  async assertCanAccess(prayerId: string, userId: string, role: string) {
+    if (role === 'SUPER_ADMIN') return;
+
+    const prayer = await this.prisma.prayerRequest.findUnique({
+      where: { id: prayerId },
+      select: { assignedToId: true },
+    });
+
+    if (!prayer) throw new NotFoundException('Prayer request not found');
+
+    if (prayer.assignedToId === userId) return;
+
+    const member = await this.prisma.member.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+
+    const isDeptMember = member
+      ? await this.prisma.departmentMember.findFirst({
+          where: {
+            memberId: member.id,
+            // Any active Prayer dept member, not just LEADER.
+            status: 'ACTIVE',
+            deletedAt: null,
+            department: {
+              slug: { in: ['prayer', 'intercessory-prayer', 'prayer-department'], mode: 'insensitive' },
+            },
+          },
+        })
+      : null;
+
+    if (!isDeptMember) {
+      throw new BadRequestException('You do not have access to this prayer request.');
+    }
+  }
+
+  /**
+   * Dedicated status transition (matches the frontend's updatePrayerStatus).
+   * Distinct from `update()` since it's a narrower, safer surface — only the
+   * status field, not arbitrary field overwrites.
+   */
+  async updateStatus(id: string, status: PrayerRequestStatus, actorId?: string) {
+    const existing = await this.findOne(id);
+
+    const updated = await this.prisma.prayerRequest.update({
+      where: { id },
+      data: {
+        status,
+        ...(status === PrayerRequestStatus.CLOSED ? { closedAt: new Date() } : {}),
+        ...(status === PrayerRequestStatus.PRAYING ? { acknowledgedAt: new Date() } : {}),
+      },
+    });
+
+    await this.auditLogService.createLog(
+      this.getActorContext(actorId),
+      {
+        action: AuditAction.UPDATE_PRAYER_REQUEST,
+        entity: 'PrayerRequest',
+        entityId: updated.id,
+        description: `Prayer request status changed to ${status}`,
+        oldValues: { status: existing.status },
+        newValues: { status: updated.status },
+      },
+    );
+
+    return updated;
+  }
+  
 }

@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { PrayerRequestsController } from './prayer-requests.controller';
 import { PrayerRequestsService } from './prayer-requests.service';
 import { PrayerCommunicationService } from './prayer-communication.service';
+import { PrayerAccessGuard } from './guards/prayer-access.guard';
 
 import { CommunicationsModule } from '../communications/communications.module';
 import { NotificationsModule } from '../notifications/notification.module';
@@ -22,11 +23,13 @@ import { PrismaService } from '../../../prisma/prisma.service';
   providers: [
     PrayerRequestsService,
     PrayerCommunicationService,
+    PrayerAccessGuard,
     PrismaService,
   ],
   exports: [
     PrayerRequestsService,
     PrayerCommunicationService,
+    PrayerAccessGuard,
   ],
 })
 export class PrayerRequestsModule {}

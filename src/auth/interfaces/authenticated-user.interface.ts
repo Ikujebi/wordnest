@@ -7,7 +7,8 @@ export interface AuthenticatedUser {
   email: string;
   fullName: string;
   role: Role;
-    emailVerified: boolean;
+  emailVerified: boolean;
   isActive: boolean;
-    memberId: string | null;
+  memberId: string | null;
+  canAccessPrayerManagement: boolean;
 }

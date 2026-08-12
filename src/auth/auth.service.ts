@@ -464,4 +464,27 @@ export class AuthService {
     this.logger.log(`Verification email resent to ${user.email}`);
     return { message: 'A new verification email has been sent.' };
   }
+  private async computeCanAccessPrayerManagement(userId: string, role: Role): Promise<boolean> {
+  if (role === Role.SUPER_ADMIN) return true;
+
+  const member = await this.prisma.member.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (!member) return false;
+
+  const isPrayerDeptMember = await this.prisma.departmentMember.findFirst({
+    where: {
+      memberId: member.id,
+      status: 'ACTIVE',
+      deletedAt: null,
+      department: {
+        slug: { in: ['prayer', 'intercessory-prayer', 'prayer-department'], mode: 'insensitive' },
+      },
+    },
+    select: { id: true },
+  });
+
+  return !!isPrayerDeptMember;
+}
 }

@@ -31,6 +31,7 @@ import { MinistriesModule } from './modules/ministries/ministries.module';
 import { MediaGalleryModule } from './modules/MediaGallery/mediaGallary.module';
 import { LeadershipModule } from './modules/leadership/leadership.module';
 import { GivingsModule } from './modules/givings/givings.module';
+import { ContactModule } from './modules/contact/contact.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -64,6 +65,7 @@ import { GivingsModule } from './modules/givings/givings.module';
     MediaGalleryModule,
     LeadershipModule,
     GivingsModule,
+    ContactModule,
   ],
 
   controllers: [AppController],
