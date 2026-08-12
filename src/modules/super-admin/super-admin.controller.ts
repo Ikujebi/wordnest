@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Param,
   Query,
   Body,
@@ -9,18 +10,24 @@ import {
   UseGuards,
   ParseEnumPipe,
   UnauthorizedException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { SuperAdminService } from './super-admin.service';
-import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { Role } from '@prisma/client';
 
-// Auth Imports
+import { SuperAdminService } from './super-admin.service';
+import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
+import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
+
+// Auth Guards & Decorators
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 
-// Custom interface for authenticated requests
+// Request interface with attached JWT user object
 interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
@@ -42,13 +49,49 @@ export class SuperAdminController {
   // ==========================================
 
   @Get('dashboard/stats')
+  @ApiOperation({ summary: 'Get global metrics and growth statistics' })
   async getDashboardStats() {
     return this.superAdminService.getDashboardStats();
   }
 
   @Get('dashboard/recent-provisionings')
+  @ApiOperation({ summary: 'Get recent system provisioning audit logs' })
   async getRecentProvisionings() {
     return this.superAdminService.getRecentProvisionings();
+  }
+
+  // ==========================================
+  //        SUPER ADMIN OWN PROFILE
+  // ==========================================
+
+  @Patch('profile')
+  @ApiOperation({ summary: 'Update own account profile details' })
+  async updateOwnProfile(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: UpdateOwnProfileDto,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+
+    return this.superAdminService.updateOwnProfile(userId, dto);
+  }
+
+  @Post('profile-picture')
+  @ApiOperation({ summary: 'Upload or update own profile avatar image' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('profilePicture'))
+  async updateProfilePicture(
+    @Req() req: AuthenticatedRequest,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+
+    return this.superAdminService.updateProfilePicture(userId, file);
   }
 
   // ==========================================
@@ -56,6 +99,7 @@ export class SuperAdminController {
   // ==========================================
 
   @Get('users/role')
+  @ApiOperation({ summary: 'Retrieve all users belonging to a specific Role' })
   async getIndividualsByRole(
     @Query('role', new ParseEnumPipe(Role)) role: Role,
   ) {
@@ -63,18 +107,19 @@ export class SuperAdminController {
   }
 
   @Get('users/:id')
+  @ApiOperation({ summary: 'Get detailed profile for a specific user ID' })
   async targetIndividualUser(@Param('id') userId: string) {
     return this.superAdminService.targetIndividualUser(userId);
   }
 
   @Patch('users/:id/status')
+  @ApiOperation({ summary: 'Update target user role or active status' })
   async updateIndividualStatus(
     @Req() req: AuthenticatedRequest,
     @Param('id') userId: string,
     @Body() dto: UpdateIndividualStatusDto,
   ) {
     const performingAdminId = req.user?.id;
-
     if (!performingAdminId) {
       throw new UnauthorizedException('Admin identification failed.');
     }

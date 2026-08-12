@@ -9,7 +9,10 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import { NotificationService } from '../notifications/notification.service';
-import { CloudinaryService } from '../../cloudinary/cloudinary.service'; // Adjust path if needed
+import { CloudinaryService } from '../../cloudinary/cloudinary.service';
+
+import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
+import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
 
 @Injectable()
 export class SuperAdminService {
@@ -267,6 +270,75 @@ export class SuperAdminService {
   }
 
   // ==========================================
+  //        PROFILE & AVATAR METHODS
+  // ==========================================
+
+  async updateOwnProfile(userId: string, data: UpdateOwnProfileDto) {
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        profilePictureUrl: true,
+      },
+    });
+
+    await this.auditLogService.createLog(
+      { id: userId },
+      {
+        action: AuditAction.UPDATE_USER,
+        entity: 'USER',
+        entityId: userId,
+        description: 'Updated own profile details',
+        newValues: data,
+      },
+    );
+
+    return updated;
+  }
+
+  async updateProfilePicture(userId: string, file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No file provided.');
+    }
+
+    const uploadResult = await this.cloudinaryService.uploadFile(file, {
+      folder: 'profile-pictures',
+    });
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        profilePictureUrl: uploadResult.secure_url,
+        profilePicturePublicId: uploadResult.public_id,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        profilePictureUrl: true,
+      },
+    });
+
+    await this.auditLogService.createLog(
+      { id: userId },
+      {
+        action: AuditAction.UPDATE_USER,
+        entity: 'USER',
+        entityId: userId,
+        description: 'Updated profile picture',
+        newValues: { profilePictureUrl: updated.profilePictureUrl },
+      },
+    );
+
+    return updated;
+  }
+
+  // ==========================================
   //        INDIVIDUAL TARGETING METHODS
   // ==========================================
 
@@ -328,7 +400,7 @@ export class SuperAdminService {
   async updateIndividualStatus(
     performingAdminId: string,
     userId: string,
-    data: { role?: Role; isActive?: boolean },
+    data: UpdateIndividualStatusDto,
   ) {
     const userExists = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -350,7 +422,7 @@ export class SuperAdminService {
       },
     });
 
-    // 2. Trigger Audit Log via AuditLogService.createLog
+    // 2. Trigger Audit Log
     await this.auditLogService.createLog(
       { id: performingAdminId },
       {
@@ -363,7 +435,7 @@ export class SuperAdminService {
       },
     );
 
-    // 3. Trigger Notification via NotificationService.notify
+    // 3. Trigger Notification
     await this.notificationsService.notify(userId, {
       title: 'Account Status Updated',
       message: `Your account details were updated by an administrator. Role: ${
@@ -380,43 +452,5 @@ export class SuperAdminService {
     });
 
     return updatedUser;
-  }
-
-  async updateProfilePicture(userId: string, file: Express.Multer.File) {
-    if (!file) {
-      throw new BadRequestException('No file provided.');
-    }
-
-    const uploadResult = await this.cloudinaryService.uploadFile(file, {
-      folder: 'profile-pictures',
-    });
-
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        profilePictureUrl: uploadResult.secure_url,
-        profilePicturePublicId: uploadResult.public_id,
-      },
-      select: {
-        id: true,
-        fullName: true,
-        email: true,
-        role: true,
-        profilePictureUrl: true,
-      },
-    });
-
-    await this.auditLogService.createLog(
-      { id: userId },
-      {
-        action: AuditAction.UPDATE_USER,
-        entity: 'USER',
-        entityId: userId,
-        description: 'Updated profile picture',
-        newValues: { profilePictureUrl: updated.profilePictureUrl },
-      },
-    );
-
-    return updated;
   }
 }

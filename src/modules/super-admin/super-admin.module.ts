@@ -5,8 +5,15 @@ import { SuperAdminService } from './super-admin.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { NotificationsModule } from '../notifications/notification.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CloudinaryModule } from '../../cloudinary/cloudinary.module'; // Adjust path if needed
+
 @Module({
-  imports: [PrismaModule, NotificationsModule, AuditLogModule],
+  imports: [
+    PrismaModule,
+    NotificationsModule,
+    AuditLogModule,
+    CloudinaryModule,
+  ],
   controllers: [SuperAdminController],
   providers: [SuperAdminService],
   exports: [SuperAdminService],
