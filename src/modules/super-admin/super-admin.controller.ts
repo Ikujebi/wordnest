@@ -8,13 +8,20 @@ import {
   Req,
   UseGuards,
   ParseEnumPipe,
+  UnauthorizedException,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SuperAdminService } from './super-admin.service';
 import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { Role } from '@prisma/client';
 
-// Define a custom interface for authenticated requests
-interface AuthenticatedRequest {
+// Auth Imports
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+
+// Custom interface for authenticated requests
+interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email?: string;
@@ -22,14 +29,11 @@ interface AuthenticatedRequest {
   };
 }
 
-// Uncomment these once your Auth Guards are ready for production
-// import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-// import { RolesGuard } from '../auth/guards/roles.guard';
-// import { Roles } from '../auth/decorators/roles.decorator';
-
+@ApiTags('Super Admin')
+@ApiBearerAuth()
 @Controller('super-admin')
-// @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.SUPER_ADMIN)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN)
 export class SuperAdminController {
   constructor(private readonly superAdminService: SuperAdminService) {}
 
@@ -71,8 +75,12 @@ export class SuperAdminController {
   ) {
     const performingAdminId = req.user?.id;
 
+    if (!performingAdminId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+
     return this.superAdminService.updateIndividualStatus(
-      performingAdminId!,
+      performingAdminId,
       userId,
       dto,
     );

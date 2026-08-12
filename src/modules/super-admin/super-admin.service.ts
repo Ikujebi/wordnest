@@ -1,10 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import { NotificationService } from '../notifications/notification.service';
+import { CloudinaryService } from '../../cloudinary/cloudinary.service'; // Adjust path if needed
 
 @Injectable()
 export class SuperAdminService {
@@ -12,6 +17,7 @@ export class SuperAdminService {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly notificationsService: NotificationService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   // ==========================================
@@ -374,5 +380,43 @@ export class SuperAdminService {
     });
 
     return updatedUser;
+  }
+
+  async updateProfilePicture(userId: string, file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No file provided.');
+    }
+
+    const uploadResult = await this.cloudinaryService.uploadFile(file, {
+      folder: 'profile-pictures',
+    });
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        profilePictureUrl: uploadResult.secure_url,
+        profilePicturePublicId: uploadResult.public_id,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        profilePictureUrl: true,
+      },
+    });
+
+    await this.auditLogService.createLog(
+      { id: userId },
+      {
+        action: AuditAction.UPDATE_USER,
+        entity: 'USER',
+        entityId: userId,
+        description: 'Updated profile picture',
+        newValues: { profilePictureUrl: updated.profilePictureUrl },
+      },
+    );
+
+    return updated;
   }
 }
