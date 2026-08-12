@@ -11,9 +11,8 @@ import { AuthModule } from './auth/auth.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { CommonModule } from './common/common.module';
 import { CommunicationsModule } from './modules/communications/communications.module';
-import { SearchModule } from './modules/search/search.module'; 
+import { SearchModule } from './modules/search/search.module';
 import { ScheduleModule } from '@nestjs/schedule';
-// 🔥 1. IMPORT YOUR THREE NEW ROLE MODULES HERE
 import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { MemberModule } from './modules/member/member.module';
@@ -22,7 +21,7 @@ import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AuditLogInterceptor } from './common/interceptors/audit-log.interceptor';
-import {NotificationsModule,} from './modules/notifications/notification.module';
+import { NotificationsModule } from './modules/notifications/notification.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { WebAnalyticsModule } from './modules/web-analytics/web-analytics.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
@@ -32,16 +31,39 @@ import { MediaGalleryModule } from './modules/MediaGallery/mediaGallary.module';
 import { LeadershipModule } from './modules/leadership/leadership.module';
 import { GivingsModule } from './modules/givings/givings.module';
 import { ContactModule } from './modules/contact/contact.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
     ScheduleModule.forRoot(),
+
+    // ============================================================
+    // THROTTLER — two named tiers
+    //
+    // 'auth'    : tight limit, meant to be applied explicitly (via
+    //             @Throttle()) to endpoints attackers would brute-force
+    //             or spam: login, register, forgot/reset password,
+    //             email verification resend, public contact form.
+    //
+    // 'default' : generous limit for everything else — this is what
+    //             every route gets automatically since it's registered
+    //             as the APP_GUARD below. Authenticated admin/member
+    //             screens routinely fire off several calls per page
+    //             load (dashboard stats + audit logs + notifications
+    //             etc.), so this needs real headroom.
+    // ============================================================
     ThrottlerModule.forRoot([
       {
-        ttl: 60_000,
-        limit: 10,
+        name: 'default',
+        ttl: 60_000, // 1 minute
+        limit: 300, // generous — authenticated dashboard traffic
+      },
+      {
+        name: 'auth',
+        ttl: 60_000, // 1 minute
+        limit: 8, // tight — brute-force / spam protection
       },
     ]),
 
@@ -50,10 +72,9 @@ import { ContactModule } from './modules/contact/contact.module';
     CloudinaryModule,
     CommonModule,
     CommunicationsModule,
-    SearchModule, 
+    SearchModule,
     PrayerRequestsModule,
     NotificationsModule,
-    // 🔥 2. REGISTER THEM HERE IN THE IMPORTS ARRAY
     SuperAdminModule,
     AdminModule,
     MemberModule,
@@ -73,6 +94,9 @@ import { ContactModule } from './modules/contact/contact.module';
   providers: [
     AppService,
 
+    // Applies the 'default' tier globally to every route unless a
+    // controller/handler overrides it with @Throttle(...) or opts out
+    // with @SkipThrottle().
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

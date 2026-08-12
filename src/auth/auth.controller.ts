@@ -8,10 +8,10 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type{ Response } from 'express';
+import type { Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
-import { Throttle } from '@nestjs/throttler';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -27,10 +27,7 @@ import {
 import { Public } from './decorators/public.decorator';
 
 const REFRESH_COOKIE_NAME = 'refreshToken';
-// Scope the cookie to only the auth routes that need it — reduces its exposure
-// to unrelated endpoints. Adjust '/api/auth' if your global prefix differs.
 const REFRESH_COOKIE_PATH = '/api/auth';
-// Match this to your JWT_REFRESH token's actual expiresIn (see auth-token.service.ts)
 const REFRESH_COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 function setRefreshCookie(response: Response, refreshToken: string) {
@@ -57,6 +54,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Throttle({ auth: { limit: 3, ttl: 60_000 } }) // registration abuse is costly — keep tight
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   async register(
@@ -72,6 +70,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } }) // brute-force protection
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
@@ -86,6 +85,9 @@ export class AuthController {
     };
   }
 
+  // Not throttled with 'auth' — this fires automatically on every 401
+  // via your secureFetch refresh flow, so it needs the generous 'default'
+  // tier (applied globally) rather than the strict one.
   @UseGuards(RefreshAuthGuard)
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
@@ -114,7 +116,7 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Throttle({ auth: { limit: 3, ttl: 60_000 } }) // switched to the named 'auth' tier
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
   resendVerificationEmail(@CurrentUser('id') userId: string) {
@@ -128,6 +130,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ auth: { limit: 3, ttl: 60_000 } }) // prevents email-spam via password reset
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   forgotPassword(@Body() dto: ForgotPasswordDto) {
@@ -135,6 +138,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   resetPassword(@Body() dto: ResetPasswordDto) {

@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { Role } from '@prisma/client';
+import { Throttle, SkipThrottle } from '@nestjs/throttler';
 
 import { ContactService } from './contact.service';
 import { CreateContactDto } from './dto/create-contact.dto';
@@ -41,10 +42,11 @@ export class ContactController {
   constructor(private readonly contactService: ContactService) {}
 
   /**
-   * Public contact form submission
+   * Public contact form submission — unauthenticated, so this is the one
+   * route on this controller that genuinely needs abuse protection.
    * POST /contact
-   * Website: wordtabernacle.org.ng/contact
    */
+  @Throttle({ auth: { limit: 5, ttl: 60_000 } })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() dto: CreateContactDto) {
@@ -56,35 +58,29 @@ export class ContactController {
 
   // =========================================================================
   // ADMIN ROUTES - STATIC PATHS (MUST BE DEFINED BEFORE PARAMETERIZED :id)
+  // Everything below is already behind JwtAuthGuard + RolesGuard, so it's
+  // skipped from throttling entirely — dashboards/tables can safely fire
+  // several of these per page load without tripping a limit.
   // =========================================================================
 
-  /**
-   * Admin: Fetch all contact messages with filters & pagination
-   * GET /contact
-   */
   @Get()
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async findAll(@Query() query: ContactQueryDto) {
     return this.contactService.findAll(query);
   }
 
-  /**
-   * Admin: Get dashboard aggregated statistics
-   * GET /contact/statistics
-   */
   @Get('statistics')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async statistics() {
     return this.contactService.statistics();
   }
 
-  /**
-   * Admin: Fetch latest messages for dashboard widgets
-   * GET /contact/latest?limit=5
-   */
   @Get('latest')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async latest(
@@ -93,11 +89,8 @@ export class ContactController {
     return this.contactService.latest(limit);
   }
 
-  /**
-   * Admin: Bulk resolve contact messages
-   * PATCH /contact/bulk/resolve
-   */
   @Patch('bulk/resolve')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async bulkResolve(
@@ -110,11 +103,8 @@ export class ContactController {
     };
   }
 
-  /**
-   * Admin: Bulk soft delete contact messages
-   * DELETE /contact/bulk
-   */
   @Delete('bulk')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async bulkDelete(@Body() dto: BulkContactActionDto) {
@@ -124,11 +114,8 @@ export class ContactController {
     };
   }
 
-  /**
-   * Admin: Bulk restore soft-deleted contact messages
-   * PATCH /contact/bulk/restore
-   */
   @Patch('bulk/restore')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async bulkRestore(@Body() dto: BulkContactActionDto) {
@@ -142,22 +129,16 @@ export class ContactController {
   // ADMIN ROUTES - PARAMETERIZED PATHS (:id)
   // =========================================================================
 
-  /**
-   * Admin: Get single contact message details
-   * GET /contact/:id
-   */
   @Get(':id')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.contactService.findOne(id);
   }
 
-  /**
-   * Admin: Mark contact as read
-   * PATCH /contact/:id/read
-   */
   @Patch(':id/read')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async markAsRead(@Param('id', ParseUUIDPipe) id: string) {
@@ -167,11 +148,8 @@ export class ContactController {
     };
   }
 
-  /**
-   * Admin: Resolve contact (assigns handler to logged-in admin)
-   * PATCH /contact/:id/resolve
-   */
   @Patch(':id/resolve')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async resolve(
@@ -184,11 +162,8 @@ export class ContactController {
     };
   }
 
-  /**
-   * Admin: Reopen/unresolve contact
-   * PATCH /contact/:id/unresolve
-   */
   @Patch(':id/unresolve')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async unresolve(@Param('id', ParseUUIDPipe) id: string) {
@@ -198,11 +173,8 @@ export class ContactController {
     };
   }
 
-  /**
-   * Admin: Update contact fields
-   * PATCH /contact/:id
-   */
   @Patch(':id')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async update(
@@ -215,11 +187,8 @@ export class ContactController {
     };
   }
 
-  /**
-   * Admin: Soft delete contact message
-   * DELETE /contact/:id
-   */
   @Delete(':id')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async remove(@Param('id', ParseUUIDPipe) id: string) {
@@ -229,11 +198,8 @@ export class ContactController {
     };
   }
 
-  /**
-   * Admin: Restore soft-deleted message
-   * PATCH /contact/:id/restore
-   */
   @Patch(':id/restore')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async restore(@Param('id', ParseUUIDPipe) id: string) {
@@ -245,9 +211,9 @@ export class ContactController {
 
   /**
    * Super Admin Only: Permanently delete message from DB
-   * DELETE /contact/:id/permanent
    */
   @Delete(':id/permanent')
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN)
   async deletePermanent(@Param('id', ParseUUIDPipe) id: string) {
