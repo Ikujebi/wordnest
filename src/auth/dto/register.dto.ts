@@ -1,6 +1,7 @@
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -36,6 +37,15 @@ export class RegisterDto {
   })
   email!: string;
 
+  @IsOptional()
+  @IsString({
+    message: 'Phone number must be a string.',
+  })
+  @Matches(/^(\+234|0)[789][01]\d{8}$/, {
+    message: 'Please provide a valid phone number (e.g., +2348123456789 or 08123456789).',
+  })
+  phoneNumber?: string;
+
   @IsNotEmpty({
     message: 'Password is required.',
   })
@@ -56,4 +66,12 @@ export class RegisterDto {
     },
   )
   password!: string;
+
+  @IsOptional()
+  @IsString()
+  profilePictureUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  profilePicturePublicId?: string;
 }
