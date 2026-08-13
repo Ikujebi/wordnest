@@ -14,7 +14,7 @@ export class InvitesController {
   @Post('send')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   async sendInvite(@Body() dto: SendInviteDto) {
     return this.invitesService.sendInvite(dto);
   }
