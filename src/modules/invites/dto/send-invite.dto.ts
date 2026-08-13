@@ -10,6 +10,6 @@ export class SendInviteDto {
   email!: string;
 
   @IsNotEmpty()
-  @IsEnum(InviteRole, { message: 'Role must be either MEMBER or ADMIN.' })
+  @IsEnum(InviteRole, { message: 'Role must be one of MEMBER, ADMIN, or SUPER_ADMIN.' })
   role!: InviteRole;
 }

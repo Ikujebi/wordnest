@@ -1005,6 +1005,7 @@ enum RecipientStatus {
 enum InviteRole {
   MEMBER
   ADMIN
+  SUPER_ADMIN
 }
 
 enum InviteStatus {
