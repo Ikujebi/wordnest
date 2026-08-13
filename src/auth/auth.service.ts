@@ -153,59 +153,68 @@ export class AuthService {
    * Register a new user, build relational records, and dispatch verification alerts.
    */
   async register(dto: RegisterDto): Promise<LoginResponse> {
-    const email = this.userService.normalizeEmail(dto.email);
+  const email = this.userService.normalizeEmail(dto.email);
 
-    const existingUser = await this.usersService.findByEmail(email);
-    if (existingUser) {
-      throw new ConflictException('An account with this email already exists.');
-    }
-
-    const passwordHash = await this.passwordService.hash(dto.password);
-
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        fullName: dto.fullName.trim(),
-        phoneNumber: dto.phoneNumber?.trim() ?? null, // <-- ADD THIS
-        profilePictureUrl: dto.profilePictureUrl ?? null,
-        profilePicturePublicId: dto.profilePicturePublicId ?? null,
-        passwordHash,
-        role: Role.MEMBER,
-        isActive: true,
-        emailVerified: false,
-        failedLoginAttempts: 0,
-        lockedUntil: null,
-      },
-      include: { member: { select: { id: true } } },
-    });
-
-    // 1. Audit Log -> User Registered
-    await this.auditLogService.createLog(
-      { id: user.id },
-      {
-        action: AuditAction.CREATE_USER,
-        entity: 'User',
-        entityId: user.id,
-        description: `New user account created for ${user.email}.`,
-      },
-    );
-
-    // 2. Real-Time Notification -> Super Admins
-    await this.notificationService.notifySuperAdmins({
-      title: 'New Member Registered',
-      message: `${user.fullName} (${user.email}) has created an account.`,
-      type: NotificationType.SYSTEM,
-    });
-
-    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
-    const tokens = await this.tokenService.generateTokens(authenticatedUser);
-
-    await this.tokenService.updateRefreshTokenHash(user.id, tokens.refreshToken);
-    await this.emailService.sendVerificationEmail(authenticatedUser);
-
-    this.logger.log(`New user registered: ${user.email}`);
-    return { user: authenticatedUser, tokens };
+  const existingUser = await this.usersService.findByEmail(email);
+  if (existingUser) {
+    throw new ConflictException('An account with this email already exists.');
   }
+
+  const passwordHash = await this.passwordService.hash(dto.password);
+
+  const user = await this.prisma.user.create({
+    data: {
+      email,
+      fullName: dto.fullName.trim(),
+      phoneNumber: dto.phoneNumber?.trim() ?? null,
+      profilePictureUrl: dto.profilePictureUrl ?? null,
+      profilePicturePublicId: dto.profilePicturePublicId ?? null,
+      passwordHash,
+      role: Role.MEMBER,
+      isActive: true,
+      emailVerified: false,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    },
+    include: { member: { select: { id: true } } },
+  });
+
+  await this.auditLogService.createLog(
+    { id: user.id },
+    {
+      action: AuditAction.CREATE_USER,
+      entity: 'User',
+      entityId: user.id,
+      description: `New user account created for ${user.email}.`,
+    },
+  );
+
+  await this.notificationService.notifySuperAdmins({
+    title: 'New Member Registered',
+    message: `${user.fullName} (${user.email}) has created an account.`,
+    type: NotificationType.SYSTEM,
+  });
+
+  const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+  const tokens = await this.tokenService.generateTokens(authenticatedUser);
+  await this.tokenService.updateRefreshTokenHash(user.id, tokens.refreshToken);
+
+  // Verification email is best-effort — a delivery failure (bad API key,
+  // unverified sending domain, rate limit) must never fail an otherwise
+  // successful registration. The user can always request a resend via
+  // /auth/resend-verification once the email issue is fixed.
+  try {
+    await this.emailService.sendVerificationEmail(authenticatedUser);
+  } catch (error) {
+    this.logger.error(
+      `Registration succeeded for ${user.email}, but the verification email failed to send.`,
+      error instanceof Error ? error.stack : String(error),
+    );
+  }
+
+  this.logger.log(`New user registered: ${user.email}`);
+  return { user: authenticatedUser, tokens };
+}
 
   /**
    * Cycle active application JWT security values against persistent hash records.
@@ -421,28 +430,32 @@ export class AuthService {
    * Resend an unverified verification link message request out to the active user context profile.
    */
   async resendVerificationEmail(userId: string): Promise<{ message: string }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { member: { select: { id: true } } },
-    });
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: { member: { select: { id: true } } },
+  });
 
-    if (!user) {
-      throw new UnauthorizedException('User not found.');
-    }
-    if (user.deletedAt) {
-      throw new UnauthorizedException('Account no longer exists.');
-    }
-    if (!user.isActive) {
-      throw new ForbiddenException('Account has been disabled.');
-    }
-    if (user.emailVerified) {
-      return { message: 'Email has already been verified.' };
-    }
+  if (!user) throw new UnauthorizedException('User not found.');
+  if (user.deletedAt) throw new UnauthorizedException('Account no longer exists.');
+  if (!user.isActive) throw new ForbiddenException('Account has been disabled.');
+  if (user.emailVerified) return { message: 'Email has already been verified.' };
 
-    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+  const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+
+  try {
     await this.emailService.sendVerificationEmail(authenticatedUser);
-
-    this.logger.log(`Verification email resent to ${user.email}`);
-    return { message: 'A new verification email has been sent.' };
+  } catch (error) {
+    this.logger.error(
+      `Failed to resend verification email to ${user.email}.`,
+      error instanceof Error ? error.stack : String(error),
+    );
+    // This one SHOULD surface as an error — the user explicitly asked for
+    // this email and got nothing, unlike registration where the account
+    // itself already succeeded.
+    throw new Error('Unable to send verification email right now. Please try again shortly.');
   }
+
+  this.logger.log(`Verification email resent to ${user.email}`);
+  return { message: 'A new verification email has been sent.' };
+}
 }

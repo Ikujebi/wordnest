@@ -1,5 +1,6 @@
 // invites.service.ts
 import { Injectable, ConflictException, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
 import { SendInviteDto } from './dto/send-invite.dto';
@@ -13,17 +14,18 @@ export class InvitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) { }
 
   async sendInvite(dto: SendInviteDto) {
     // 1. Verify if an active authentication account already exists for this email
     const existingUser = await this.prisma.user.findFirst({
-      where: { 
-        email: dto.email, 
-        deletedAt: null 
+      where: {
+        email: dto.email,
+        deletedAt: null
       },
     });
-    
+
     if (existingUser) {
       throw new ConflictException('A registered user account already exists for this email address.');
     }
@@ -51,10 +53,13 @@ export class InvitesService {
     });
 
     // 4. Construct invitation dynamic payload pointing directly to your Next.js application frontend
-    const inviteLink = `http://portal.wordtabernacle.org.ng/signup?token=${token}`;
-    
-    const subject = dto.role === 'ADMIN' 
-      ? 'Action Required: You have been invited as an Administrator' 
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ||
+      'https://portal.wordtabernacle.org.ng';
+
+    const inviteLink = `${frontendUrl}/signup?token=${token}`;
+    const subject = dto.role === 'ADMIN'
+      ? 'Action Required: You have been invited as an Administrator'
       : 'Welcome! You have been invited to join';
 
     const content = `
@@ -79,10 +84,10 @@ export class InvitesService {
    * Validates a token when the client lands on the onboarding/registration interface.
    */
   async validateToken(token: string) {
-    const invite = await this.prisma.invitation.findUnique({ 
-      where: { token } 
+    const invite = await this.prisma.invitation.findUnique({
+      where: { token }
     });
-    
+
     if (!invite || invite.status !== InviteStatus.PENDING) {
       throw new NotFoundException('Invitation token is invalid or has already been consumed.');
     }
@@ -102,10 +107,10 @@ export class InvitesService {
       select: { id: true, firstName: true, lastName: true }
     });
 
-    return { 
-      email: invite.email, 
+    return {
+      email: invite.email,
       role: invite.role,
-      existingMemberId: matchingMember?.id || null 
+      existingMemberId: matchingMember?.id || null
     };
   }
 }

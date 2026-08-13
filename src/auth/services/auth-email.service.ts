@@ -12,7 +12,7 @@ export class AuthEmailService {
         private readonly emailService: EmailService,
         private readonly tokenService: AuthTokenService,
         private readonly configService: ConfigService,
-    ) {}
+    ) { }
 
     /**
      * Generate a verification token, invalidate pending duplicates, and dispatch a verification email.
@@ -26,15 +26,17 @@ export class AuthEmailService {
                 where: { userId: user.id, usedAt: null },
             }),
             this.prisma.emailVerificationToken.create({
-                data: { 
-                    userId: user.id, 
+                data: {
+                    userId: user.id,
                     token: rawToken, // 👈 Using schema's exact property name
-                    expiresAt 
+                    expiresAt
                 },
             }),
         ]);
 
-        const frontendUrl = this.configService.getOrThrow<string>('FRONTEND_URL');
+        const frontendUrl =
+            this.configService.get<string>('FRONTEND_URL') ||
+            'https://portal.wordtabernacle.org.ng';
         const verificationUrl = `${frontendUrl}/verify-email?token=${rawToken}`;
 
         await this.emailService.sendEmail(
@@ -56,15 +58,15 @@ export class AuthEmailService {
                 where: { userId: user.id, usedAt: null },
             }),
             this.prisma.passwordResetToken.create({
-                data: { 
-                    userId: user.id, 
+                data: {
+                    userId: user.id,
                     token: rawToken, // 👈 Using schema's exact property name
-                    expiresAt 
+                    expiresAt
                 },
             }),
         ]);
 
-        const frontendUrl = this.configService.getOrThrow<string>('FRONTEND_URL');
+        const frontendUrl = this.configService.getOrThrow<string>('FRONTEND_URL')|| 'https://portal.wordtabernacle.org.ng';
         const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
 
         await this.emailService.sendEmail(
