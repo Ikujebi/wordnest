@@ -227,4 +227,40 @@ export class UsersService {
       throw new InternalServerErrorException('Failed to delete user');
     }
   }
+  /**
+ * Members with a birthday (month+day, ignoring year) falling within the
+ * next N days. Filtered in JS since comparing month/day across a year
+ * boundary (e.g. Dec 28 -> Jan 5) isn't a clean single SQL WHERE clause.
+ */
+async getUpcomingBirthdays(days = 30) {
+  const members = await this.prisma.member.findMany({
+    where: { deletedAt: null, dateOfBirth: { not: null } },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      dateOfBirth: true,
+      email: true,
+      phoneNumber: true,
+    },
+  });
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const withNextOccurrence = members
+    .map((m) => {
+      const dob = m.dateOfBirth!;
+      let next = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
+      if (next < startOfToday) {
+        next = new Date(now.getFullYear() + 1, dob.getMonth(), dob.getDate());
+      }
+      const daysUntil = Math.round((next.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
+      return { ...m, nextBirthday: next, daysUntil };
+    })
+    .filter((m) => m.daysUntil <= days)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+
+  return withNextOccurrence;
+}
 }

@@ -3,14 +3,14 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import { NotificationService } from '../notifications/notification.service';
 import { CloudinaryService } from '../../cloudinary/cloudinary.service';
-
+import { AdminQueryDto } from './dto/admin-query.dto';
 import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
 
@@ -453,4 +453,53 @@ export class SuperAdminService {
 
     return updatedUser;
   }
+  async listAdmins(query: AdminQueryDto) {
+  const page = Number(query.page) || 1;
+  const limit = Number(query.limit) || 20;
+  const skip = (page - 1) * limit;
+
+  const where: Prisma.UserWhereInput = {
+    deletedAt: null,
+    role: query.role ? query.role : { in: [Role.ADMIN, Role.SUPER_ADMIN] },
+    ...(query.status === 'ACTIVE' ? { isActive: true } : {}),
+    ...(query.status === 'SUSPENDED' ? { isActive: false } : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { fullName: { contains: query.search, mode: 'insensitive' } },
+            { email: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
+
+  const [items, total] = await this.prisma.$transaction([
+    this.prisma.user.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true,
+        isActive: true,
+        emailVerified: true,
+        lastLoginAt: true,
+        createdAt: true,
+      },
+    }),
+    this.prisma.user.count({ where }),
+  ]);
+
+  return {
+    data: items,
+    meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+  };
+}
+
+async toggleAdminStatus(performingAdminId: string, targetId: string, isActive: boolean) {
+  return this.updateIndividualStatus(performingAdminId, targetId, { isActive });
+}
 }

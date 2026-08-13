@@ -32,6 +32,7 @@ import { LeadershipModule } from './modules/leadership/leadership.module';
 import { GivingsModule } from './modules/givings/givings.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { SystemModule } from './system/system.module';
+import { InvitesModule } from './modules/invites/invites.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -88,6 +89,7 @@ import { SystemModule } from './system/system.module';
     GivingsModule,
     ContactModule,
     SystemModule,
+    InvitesModule,
   ],
 
   controllers: [AppController],

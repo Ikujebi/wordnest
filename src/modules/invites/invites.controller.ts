@@ -1,26 +1,28 @@
 // invites.controller.ts
-import { Controller, Post, Get, Body, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { InvitesService } from './invites.service';
 import { SendInviteDto } from './dto/send-invite.dto';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../../auth/guards/roles.guard';
+import { Roles } from '../../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('invites')
 export class InvitesController {
   constructor(private readonly invitesService: InvitesService) {}
 
-  /**
-   * Administrative endpoint to issue new invitations.
-   */
   @Post('send')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN)
   async sendInvite(@Body() dto: SendInviteDto) {
-    return await this.invitesService.sendInvite(dto);
+    return this.invitesService.sendInvite(dto);
   }
 
-  /**
-   * Verification check called by the UI client app when a user lands on the invite link.
-   */
+  // Public — anyone with a valid token needs to be able to verify it
+  // without being logged in yet.
   @Get('verify')
   async verifyToken(@Query('token') token: string) {
-    return await this.invitesService.validateToken(token);
+    return this.invitesService.validateToken(token);
   }
 }

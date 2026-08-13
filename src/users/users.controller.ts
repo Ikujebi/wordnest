@@ -181,4 +181,9 @@ export class UsersController {
   ): Promise<void> {
     await this.usersService.softDelete(id);
   }
+  @Get('birthdays')
+@ApiOperation({ summary: 'Get members with birthdays in the next N days' })
+async getUpcomingBirthdays(@Query('days') days?: string) {
+  return this.usersService.getUpcomingBirthdays(days ? Number(days) : undefined);
+}
 }

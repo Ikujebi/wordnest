@@ -26,7 +26,8 @@ import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
-
+import { AdminQueryDto } from './dto/admin-query.dto';
+import { ToggleAdminStatusDto } from './dto/toggle-admin-status.dto';
 // Request interface with attached JWT user object
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -129,5 +130,23 @@ export class SuperAdminController {
       userId,
       dto,
     );
+  
   }
+  @Get('admins')
+@ApiOperation({ summary: 'List admin and super-admin accounts, paginated and filterable' })
+async listAdmins(@Query() query: AdminQueryDto) {
+  return this.superAdminService.listAdmins(query);
+}
+
+@Patch('admins/:id/status')
+@ApiOperation({ summary: 'Suspend or reactivate an admin account' })
+async toggleAdminStatus(
+  @Req() req: AuthenticatedRequest,
+  @Param('id') id: string,
+  @Body() dto: ToggleAdminStatusDto,
+) {
+  const performingAdminId = req.user?.id;
+  if (!performingAdminId) throw new UnauthorizedException('Admin identification failed.');
+  return this.superAdminService.toggleAdminStatus(performingAdminId, id, dto.isActive);
+}
 }
