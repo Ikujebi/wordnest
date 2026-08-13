@@ -44,7 +44,7 @@ export class AuthService {
     private readonly userService: AuthUserService,
     private readonly notificationService: NotificationService,
     private readonly auditLogService: AuditLogService,
-  ) {}
+  ) { }
 
   /**
    * Validate a user's credentials for Passport local strategy.
@@ -166,6 +166,9 @@ export class AuthService {
       data: {
         email,
         fullName: dto.fullName.trim(),
+        phoneNumber: dto.phoneNumber?.trim() ?? null, // <-- ADD THIS
+        profilePictureUrl: dto.profilePictureUrl ?? null,
+        profilePicturePublicId: dto.profilePicturePublicId ?? null,
         passwordHash,
         role: Role.MEMBER,
         isActive: true,
