@@ -68,7 +68,7 @@ export class AuthService {
 
     if (!validPassword) {
       await this.lockService.incrementFailedLoginAttempts(user.id);
-      
+
       // 1. Audit Log -> Failed Login
       await this.auditLogService.createLog(
         { id: user.id },
@@ -133,7 +133,7 @@ export class AuthService {
 
     await this.lockService.resetFailedLoginAttempts(user.id);
 
-    const authenticatedUser = this.userService.mapAuthenticatedUser(user);
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
     const tokens = await this.tokenService.generateTokens(authenticatedUser);
 
     // Update login metadata and track fresh tokens
@@ -144,7 +144,6 @@ export class AuthService {
         data: { lastLoginAt: new Date() },
       });
     });
- 
 
     this.logger.log(`User ${user.email} logged in successfully.`);
     return { user: authenticatedUser, tokens };
@@ -195,7 +194,7 @@ export class AuthService {
       type: NotificationType.SYSTEM,
     });
 
-    const authenticatedUser = this.userService.mapAuthenticatedUser(user);
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
     const tokens = await this.tokenService.generateTokens(authenticatedUser);
 
     await this.tokenService.updateRefreshTokenHash(user.id, tokens.refreshToken);
@@ -227,7 +226,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token.');
     }
 
-    const authenticatedUser = this.userService.mapAuthenticatedUser(user);
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
     const tokens = await this.tokenService.generateTokens(authenticatedUser);
 
     await this.tokenService.updateRefreshTokenHash(user.id, tokens.refreshToken);
@@ -244,7 +243,6 @@ export class AuthService {
       where: { id: userId },
       data: { refreshTokenHash: null },
     });
-
 
     this.logger.log(`User ${userId} logged out successfully.`);
     return { message: 'Logged out successfully.' };
@@ -438,33 +436,10 @@ export class AuthService {
       return { message: 'Email has already been verified.' };
     }
 
-    const authenticatedUser = this.userService.mapAuthenticatedUser(user);
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
     await this.emailService.sendVerificationEmail(authenticatedUser);
 
     this.logger.log(`Verification email resent to ${user.email}`);
     return { message: 'A new verification email has been sent.' };
   }
-  private async computeCanAccessPrayerManagement(userId: string, role: Role): Promise<boolean> {
-  if (role === Role.SUPER_ADMIN) return true;
-
-  const member = await this.prisma.member.findUnique({
-    where: { userId },
-    select: { id: true },
-  });
-  if (!member) return false;
-
-  const isPrayerDeptMember = await this.prisma.departmentMember.findFirst({
-    where: {
-      memberId: member.id,
-      status: 'ACTIVE',
-      deletedAt: null,
-      department: {
-        slug: { in: ['prayer', 'intercessory-prayer', 'prayer-department'], mode: 'insensitive' },
-      },
-    },
-    select: { id: true },
-  });
-
-  return !!isPrayerDeptMember;
-}
 }
