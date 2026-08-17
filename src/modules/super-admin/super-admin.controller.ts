@@ -206,4 +206,17 @@ export class SuperAdminController {
     }
     return this.superAdminService.deleteAdmin(performingAdminId, id);
   }
+  @Post('approvals/:id/resend-verification')
+async resendVerification(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  const performingAdminId = req.user?.id;
+  if (!performingAdminId) throw new UnauthorizedException('Admin identification failed.');
+  return this.superAdminService.resendPendingVerification(performingAdminId, id);
+}
+
+@Delete('approvals/:id')
+async deletePendingAccount(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+  const performingAdminId = req.user?.id;
+  if (!performingAdminId) throw new UnauthorizedException('Admin identification failed.');
+  return this.superAdminService.hardDeletePendingUser(performingAdminId, id);
+}
 }

@@ -7,9 +7,9 @@ import { NotificationsModule } from '../notifications/notification.module';
 
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
-
+import { AuthModule } from '../../auth/auth.module';
 @Module({
-  imports: [PrismaModule, AuditLogModule, NotificationsModule],
+  imports: [PrismaModule, AuditLogModule, NotificationsModule,AuthModule],
   controllers: [AdminController],
   providers: [AdminService],
   exports: [AdminService],

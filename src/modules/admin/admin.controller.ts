@@ -64,4 +64,13 @@ export class AdminController {
   rejectMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.adminService.rejectMemberAccount(req.user.id, id);
   }
+  @Post('approvals/:id/resend-verification')
+resendVerification(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+  return this.adminService.resendPendingMemberVerification(req.user.id, id);
+}
+
+@Delete('approvals/:id')
+deletePendingMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+  return this.adminService.hardDeletePendingMember(req.user.id, id);
+}
 }

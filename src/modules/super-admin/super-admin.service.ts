@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException
 } from '@nestjs/common';
 import { Role, Prisma } from '@prisma/client';
 
@@ -13,7 +14,8 @@ import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 import { AdminQueryDto } from './dto/admin-query.dto';
 import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
-
+import { AuthEmailService } from '../../auth/services/auth-email.service';
+import { AuthUserService } from '../../auth/services/auth-user.service';
 @Injectable()
 export class SuperAdminService {
   constructor(
@@ -21,6 +23,8 @@ export class SuperAdminService {
     private readonly auditLogService: AuditLogService,
     private readonly notificationsService: NotificationService,
     private readonly cloudinaryService: CloudinaryService,
+     private readonly authEmailService: AuthEmailService,   
+  private readonly authUserService: AuthUserService,
   ) {}
 
   // ==========================================
@@ -588,5 +592,57 @@ async rejectUser(performingAdminId: string, userId: string) {
   );
 
   return updated;
+}
+async resendPendingVerification(performingAdminId: string, userId: string) {
+  const target = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: { member: { select: { id: true } } },
+  });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.emailVerified) throw new ConflictException('This account is already verified.');
+
+  const authenticatedUser = await this.authUserService.mapAuthenticatedUser(target);
+  await this.authEmailService.sendVerificationEmail(authenticatedUser);
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    {
+      action: AuditAction.UPDATE_USER,
+      entity: 'USER',
+      entityId: userId,
+      description: `Resent verification email to ${target.email}`,
+    },
+  );
+
+  return { message: `Verification email resent to ${target.email}.` };
+}
+
+async hardDeletePendingUser(performingAdminId: string, userId: string) {
+  if (performingAdminId === userId) {
+    throw new BadRequestException('You cannot delete your own account.');
+  }
+
+  const target = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.approvalStatus !== 'PENDING') {
+    throw new BadRequestException(
+      'Only accounts still pending approval can be permanently deleted this way. Use suspend/deactivate for active accounts.',
+    );
+  }
+
+  await this.prisma.user.delete({ where: { id: userId } });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    {
+      action: AuditAction.DELETE_USER,
+      entity: 'USER',
+      entityId: userId,
+      description: `Permanently deleted pending account for ${target.email}`,
+      oldValues: { email: target.email, role: target.role, approvalStatus: target.approvalStatus },
+    },
+  );
+
+  return { message: 'Pending account permanently deleted.' };
 }
 }

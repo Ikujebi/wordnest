@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, InternalServerErrorException, Logger,BadRequestException } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -8,6 +8,8 @@ import { NotificationService } from '../notifications/notification.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberStatusDto } from './dto/update-member-status.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
+import { AuthEmailService } from '../../auth/services/auth-email.service';
+import { AuthUserService } from '../../auth/services/auth-user.service';
 
 @Injectable()
 export class AdminService {
@@ -17,6 +19,8 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly notificationsService: NotificationService,
+    private readonly authEmailService: AuthEmailService,   // new
+  private readonly authUserService: AuthUserService, 
   ) {}
 
   async getDashboardStats() {
@@ -296,5 +300,48 @@ async rejectMemberAccount(performingAdminId: string, userId: string) {
     { action: AuditAction.UPDATE_USER, entity: 'USER', entityId: userId, description: `Rejected member account for ${target.email}` },
   );
   return updated;
+}
+async resendPendingMemberVerification(performingAdminId: string, userId: string) {
+  const target = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: { member: { select: { id: true } } },
+  });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.role !== 'MEMBER') throw new ForbiddenException('Admins can only manage member accounts.');
+  if (target.emailVerified) throw new ConflictException('This account is already verified.');
+
+  const authenticatedUser = await this.authUserService.mapAuthenticatedUser(target);
+  await this.authEmailService.sendVerificationEmail(authenticatedUser);
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    { action: AuditAction.UPDATE_USER, entity: 'USER', entityId: userId, description: `Resent verification email to ${target.email}` },
+  );
+
+  return { message: `Verification email resent to ${target.email}.` };
+}
+
+async hardDeletePendingMember(performingAdminId: string, userId: string) {
+  const target = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.role !== 'MEMBER') throw new ForbiddenException('Admins can only manage member accounts.');
+  if (target.approvalStatus !== 'PENDING') {
+    throw new BadRequestException('Only accounts still pending approval can be permanently deleted this way.');
+  }
+
+  await this.prisma.user.delete({ where: { id: userId } });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    {
+      action: AuditAction.DELETE_USER,
+      entity: 'USER',
+      entityId: userId,
+      description: `Permanently deleted pending member account for ${target.email}`,
+      oldValues: { email: target.email, role: target.role },
+    },
+  );
+
+  return { message: 'Pending account permanently deleted.' };
 }
 }
