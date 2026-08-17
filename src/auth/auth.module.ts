@@ -71,6 +71,6 @@ import { AuditLogModule } from '../modules/audit-log/audit-log.module';
     RolesGuard,
   ],
 
-  exports: [AuthService, JwtModule, PassportModule],
+  exports: [AuthService, JwtModule, PassportModule, AuthTokenService, AuthPasswordService, AuthUserService,],
 })
 export class AuthModule {}
