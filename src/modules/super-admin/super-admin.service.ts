@@ -502,4 +502,91 @@ export class SuperAdminService {
 async toggleAdminStatus(performingAdminId: string, targetId: string, isActive: boolean) {
   return this.updateIndividualStatus(performingAdminId, targetId, { isActive });
 }
+// super-admin.service.ts — add this method
+async deleteAdmin(performingAdminId: string, targetId: string) {
+  if (performingAdminId === targetId) {
+    throw new BadRequestException('You cannot delete your own account.');
+  }
+
+  const target = await this.prisma.user.findUnique({ where: { id: targetId } });
+  if (!target || target.deletedAt) {
+    throw new NotFoundException('Admin account not found.');
+  }
+
+  const deleted = await this.prisma.user.update({
+    where: { id: targetId },
+    data: { isActive: false, deletedAt: new Date() },
+    select: { id: true, fullName: true, email: true },
+  });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    {
+      action: AuditAction.DELETE_USER,
+      entity: 'USER',
+      entityId: targetId,
+      description: `Deleted admin account for ${target.email}`,
+      oldValues: { email: target.email, role: target.role },
+    },
+  );
+
+  return { message: 'Admin account deleted successfully.' };
+}
+async listPendingApprovals() {
+  return this.prisma.user.findMany({
+    where: { approvalStatus: 'PENDING', deletedAt: null },
+    select: {
+      id: true, fullName: true, email: true, role: true,
+      createdAt: true, emailVerified: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+async approveUser(performingAdminId: string, userId: string) {
+  const target = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.approvalStatus !== 'PENDING') {
+    throw new BadRequestException('This account is not pending approval.');
+  }
+
+  const updated = await this.prisma.user.update({
+    where: { id: userId },
+    data: { approvalStatus: 'APPROVED', approvedById: performingAdminId, approvedAt: new Date() },
+    select: { id: true, fullName: true, email: true, role: true },
+  });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    { action: AuditAction.UPDATE_USER, entity: 'USER', entityId: userId, description: `Approved account for ${target.email}` },
+  );
+
+  await this.notificationsService.notify(userId, {
+    title: 'Account Approved',
+    message: 'Your account has been approved. You can now log in.',
+  });
+
+  return updated;
+}
+
+async rejectUser(performingAdminId: string, userId: string) {
+  const target = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.approvalStatus !== 'PENDING') {
+    throw new BadRequestException('This account is not pending approval.');
+  }
+
+  const updated = await this.prisma.user.update({
+    where: { id: userId },
+    data: { approvalStatus: 'REJECTED', approvedById: performingAdminId, approvedAt: new Date() },
+    select: { id: true, fullName: true, email: true, role: true },
+  });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    { action: AuditAction.UPDATE_USER, entity: 'USER', entityId: userId, description: `Rejected account for ${target.email}` },
+  );
+
+  return updated;
+}
 }

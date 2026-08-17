@@ -1,7 +1,18 @@
-// invites.controller.ts
-import { Controller, Post, Get, Body, Query, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Query,
+  Res,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+} from '@nestjs/common';
+import type{ Response } from 'express';
 import { InvitesService } from './invites.service';
 import { SendInviteDto } from './dto/send-invite.dto';
+import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -24,5 +35,28 @@ export class InvitesController {
   @Get('verify')
   async verifyToken(@Query('token') token: string) {
     return this.invitesService.validateToken(token);
+  }
+
+  @Post('accept')
+  @HttpCode(HttpStatus.CREATED)
+  async acceptInvite(
+    @Body() dto: AcceptInviteDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const result = await this.invitesService.acceptInvite(dto);
+
+    // Set refresh cookie matching your auth setup
+    response.cookie('refreshToken', result.tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    return {
+      user: result.user,
+      tokens: { accessToken: result.tokens.accessToken },
+    };
   }
 }

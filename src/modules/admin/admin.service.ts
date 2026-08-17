@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -250,4 +250,51 @@ export class AdminService {
       growthRatePercent,
     };
   }
+  async listPendingMemberApprovals() {
+  return this.prisma.user.findMany({
+    where: { role: 'MEMBER', approvalStatus: 'PENDING', deletedAt: null },
+    select: { id: true, fullName: true, email: true, createdAt: true, emailVerified: true },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+async approveMemberAccount(performingAdminId: string, userId: string) {
+  const target = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.role !== 'MEMBER') throw new ForbiddenException('Admins can only approve member accounts.');
+  if (target.approvalStatus !== 'PENDING') throw new ConflictException('This account is not pending approval.');
+
+  const updated = await this.prisma.user.update({
+    where: { id: userId },
+    data: { approvalStatus: 'APPROVED', approvedById: performingAdminId, approvedAt: new Date() },
+    select: { id: true, fullName: true, email: true },
+  });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    { action: AuditAction.UPDATE_USER, entity: 'USER', entityId: userId, description: `Approved member account for ${target.email}` },
+  );
+
+  await this.notificationsService.notify(userId, { title: 'Account Approved', message: 'Your account has been approved. You can now log in.' });
+  return updated;
+}
+
+async rejectMemberAccount(performingAdminId: string, userId: string) {
+  const target = await this.prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.deletedAt) throw new NotFoundException('User not found.');
+  if (target.role !== 'MEMBER') throw new ForbiddenException('Admins can only reject member accounts.');
+  if (target.approvalStatus !== 'PENDING') throw new ConflictException('This account is not pending approval.');
+
+  const updated = await this.prisma.user.update({
+    where: { id: userId },
+    data: { approvalStatus: 'REJECTED', approvedById: performingAdminId, approvedAt: new Date() },
+    select: { id: true, fullName: true, email: true },
+  });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    { action: AuditAction.UPDATE_USER, entity: 'USER', entityId: userId, description: `Rejected member account for ${target.email}` },
+  );
+  return updated;
+}
 }

@@ -36,7 +36,9 @@ model User {
   deletedAt DateTime? @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-
+  approvalStatus ApprovalStatus @default(APPROVED)
+  approvedById   String?
+  approvedAt     DateTime?      @db.Timestamptz(6)
   createdById String?
   updatedById String?
 
@@ -1007,7 +1009,11 @@ enum InviteRole {
   ADMIN
   SUPER_ADMIN
 }
-
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
 enum InviteStatus {
   PENDING
   ACCEPTED

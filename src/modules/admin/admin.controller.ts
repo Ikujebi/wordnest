@@ -50,5 +50,18 @@ export class AdminController {
   deleteMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.adminService.deleteMember(id, req.user.id);
   }
+  @Get('approvals')
+  listPendingApprovals() {
+    return this.adminService.listPendingMemberApprovals();
+  }
 
+  @Patch('approvals/:id/approve')
+  approveMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.adminService.approveMemberAccount(req.user.id, id);
+  }
+
+  @Patch('approvals/:id/reject')
+  rejectMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    return this.adminService.rejectMemberAccount(req.user.id, id);
+  }
 }

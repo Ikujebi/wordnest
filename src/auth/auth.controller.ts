@@ -57,16 +57,9 @@ export class AuthController {
   @Throttle({ auth: { limit: 3, ttl: 60_000 } }) // registration abuse is costly — keep tight
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  async register(
-    @Body() dto: RegisterDto,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    const result = await this.authService.register(dto);
-    setRefreshCookie(response, result.tokens.refreshToken);
-    return {
-      user: result.user,
-      tokens: { accessToken: result.tokens.accessToken },
-    };
+  async register(@Body() dto: RegisterDto) {
+    // No cookie is set here because pending users are not issued JWT tokens
+    return this.authService.register(dto);
   }
 
   @Public()

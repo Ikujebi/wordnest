@@ -7,6 +7,7 @@ import {
   Query,
   Body,
   Req,
+  Delete,
   UseGuards,
   ParseEnumPipe,
   UnauthorizedException,
@@ -21,13 +22,14 @@ import { Role } from '@prisma/client';
 import { SuperAdminService } from './super-admin.service';
 import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
+import { AdminQueryDto } from './dto/admin-query.dto';
+import { ToggleAdminStatusDto } from './dto/toggle-admin-status.dto';
 
 // Auth Guards & Decorators
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
-import { AdminQueryDto } from './dto/admin-query.dto';
-import { ToggleAdminStatusDto } from './dto/toggle-admin-status.dto';
+
 // Request interface with attached JWT user object
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -96,6 +98,42 @@ export class SuperAdminController {
   }
 
   // ==========================================
+  //        MEMBER APPROVAL MANAGEMENT
+  // ==========================================
+
+  @Get('approvals')
+  @ApiOperation({ summary: 'List all accounts pending admin approval' })
+  async listPendingApprovals() {
+    return this.superAdminService.listPendingApprovals();
+  }
+
+  @Patch('approvals/:id/approve')
+  @ApiOperation({ summary: 'Approve a pending user registration' })
+  async approveUser(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    const performingAdminId = req.user?.id;
+    if (!performingAdminId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+    return this.superAdminService.approveUser(performingAdminId, id);
+  }
+
+  @Patch('approvals/:id/reject')
+  @ApiOperation({ summary: 'Reject a pending user registration' })
+  async rejectUser(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    const performingAdminId = req.user?.id;
+    if (!performingAdminId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+    return this.superAdminService.rejectUser(performingAdminId, id);
+  }
+
+  // ==========================================
   //        INDIVIDUAL TARGETING ROUTES
   // ==========================================
 
@@ -130,23 +168,42 @@ export class SuperAdminController {
       userId,
       dto,
     );
-  
   }
-  @Get('admins')
-@ApiOperation({ summary: 'List admin and super-admin accounts, paginated and filterable' })
-async listAdmins(@Query() query: AdminQueryDto) {
-  return this.superAdminService.listAdmins(query);
-}
 
-@Patch('admins/:id/status')
-@ApiOperation({ summary: 'Suspend or reactivate an admin account' })
-async toggleAdminStatus(
-  @Req() req: AuthenticatedRequest,
-  @Param('id') id: string,
-  @Body() dto: ToggleAdminStatusDto,
-) {
-  const performingAdminId = req.user?.id;
-  if (!performingAdminId) throw new UnauthorizedException('Admin identification failed.');
-  return this.superAdminService.toggleAdminStatus(performingAdminId, id, dto.isActive);
-}
+  // ==========================================
+  //        ADMIN MANAGEMENT ROUTES
+  // ==========================================
+
+  @Get('admins')
+  @ApiOperation({ summary: 'List admin and super-admin accounts, paginated and filterable' })
+  async listAdmins(@Query() query: AdminQueryDto) {
+    return this.superAdminService.listAdmins(query);
+  }
+
+  @Patch('admins/:id/status')
+  @ApiOperation({ summary: 'Suspend or reactivate an admin account' })
+  async toggleAdminStatus(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: ToggleAdminStatusDto,
+  ) {
+    const performingAdminId = req.user?.id;
+    if (!performingAdminId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+    return this.superAdminService.toggleAdminStatus(performingAdminId, id, dto.isActive);
+  }
+
+  @Delete('admins/:id')
+  @ApiOperation({ summary: 'Permanently deactivate/delete an admin account' })
+  async deleteAdmin(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string,
+  ) {
+    const performingAdminId = req.user?.id;
+    if (!performingAdminId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+    return this.superAdminService.deleteAdmin(performingAdminId, id);
+  }
 }

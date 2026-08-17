@@ -76,4 +76,9 @@ export class RegisterDto {
   @IsOptional()
   @IsString()
   profilePicturePublicId?: string;
+
+  @IsOptional()
+  @IsString({ message: 'Invite token must be a string.' })
+  inviteToken?: string;
 }
+

@@ -1,4 +1,3 @@
-// src/auth/auth.service.ts
 import {
   Injectable,
   Logger,
@@ -27,7 +26,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { LoginResponse } from './interfaces/login-response.interface';
 import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import { TokenPair } from './interfaces/token-pair.interface';
-import { Role, NotificationType } from '@prisma/client';
+import { Role, NotificationType, ApprovalStatus } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -44,7 +43,7 @@ export class AuthService {
     private readonly userService: AuthUserService,
     private readonly notificationService: NotificationService,
     private readonly auditLogService: AuditLogService,
-  ) { }
+  ) {}
 
   /**
    * Validate a user's credentials for Passport local strategy.
@@ -60,6 +59,10 @@ export class AuthService {
       return null;
     }
 
+    if (user.approvalStatus !== ApprovalStatus.APPROVED) {
+      return null;
+    }
+
     if (this.lockService.isAccountLocked(user.lockedUntil)) {
       return null;
     }
@@ -69,7 +72,6 @@ export class AuthService {
     if (!validPassword) {
       await this.lockService.incrementFailedLoginAttempts(user.id);
 
-      // 1. Audit Log -> Failed Login
       await this.auditLogService.createLog(
         { id: user.id },
         {
@@ -113,7 +115,6 @@ export class AuthService {
     if (!validPassword) {
       await this.lockService.incrementFailedLoginAttempts(user.id);
 
-      // 1. Audit Log -> Failed Login
       await this.auditLogService.createLog(
         { id: user.id },
         {
@@ -129,6 +130,15 @@ export class AuthService {
     const requireVerification = this.configService.get<string>('REQUIRE_EMAIL_VERIFICATION', 'true') === 'true';
     if (requireVerification && !user.emailVerified) {
       throw new ForbiddenException('Please verify your email before logging in.');
+    }
+
+    // Check approval status
+    if (user.approvalStatus === ApprovalStatus.PENDING) {
+      throw new ForbiddenException('Your account is awaiting admin approval.');
+    }
+
+    if (user.approvalStatus === ApprovalStatus.REJECTED) {
+      throw new ForbiddenException('Your account application was not approved.');
     }
 
     await this.lockService.resetFailedLoginAttempts(user.id);
@@ -151,70 +161,117 @@ export class AuthService {
 
   /**
    * Register a new user, build relational records, and dispatch verification alerts.
+   * Does NOT return JWT tokens since new accounts require admin approval.
    */
-  async register(dto: RegisterDto): Promise<LoginResponse> {
-  const email = this.userService.normalizeEmail(dto.email);
+  async register(dto: RegisterDto): Promise<{ message: string; user: AuthenticatedUser }> {
+    const email = this.userService.normalizeEmail(dto.email);
 
-  const existingUser = await this.usersService.findByEmail(email);
-  if (existingUser) {
-    throw new ConflictException('An account with this email already exists.');
-  }
+    const existingUser = await this.usersService.findByEmail(email);
+    if (existingUser) {
+      throw new ConflictException('An account with this email already exists.');
+    }
 
-  const passwordHash = await this.passwordService.hash(dto.password);
+    // Resolve role from a valid, matching invitation — never trust a
+    // client-supplied role directly. Absence of a token, or any mismatch,
+    // falls back to the safe default: MEMBER.
+    let resolvedRole: Role = Role.MEMBER;
+    let matchedInvitation: { id: string; email: string; role: Role } | null = null;
 
-  const user = await this.prisma.user.create({
-    data: {
-      email,
-      fullName: dto.fullName.trim(),
-      phoneNumber: dto.phoneNumber?.trim() ?? null,
-      profilePictureUrl: dto.profilePictureUrl ?? null,
-      profilePicturePublicId: dto.profilePicturePublicId ?? null,
-      passwordHash,
-      role: Role.MEMBER,
-      isActive: true,
-      emailVerified: false,
-      failedLoginAttempts: 0,
-      lockedUntil: null,
-    },
-    include: { member: { select: { id: true } } },
-  });
+    if (dto.inviteToken) {
+      const invitation = await this.prisma.invitation.findUnique({
+        where: { token: dto.inviteToken },
+      });
 
-  await this.auditLogService.createLog(
-    { id: user.id },
-    {
-      action: AuditAction.CREATE_USER,
-      entity: 'User',
-      entityId: user.id,
-      description: `New user account created for ${user.email}.`,
-    },
-  );
+      if (!invitation || invitation.status !== 'PENDING') {
+        throw new UnauthorizedException('Invitation token is invalid or has already been used.');
+      }
 
-  await this.notificationService.notifySuperAdmins({
-    title: 'New Member Registered',
-    message: `${user.fullName} (${user.email}) has created an account.`,
-    type: NotificationType.SYSTEM,
-  });
+      if (new Date() > invitation.expiresAt) {
+        await this.prisma.invitation.update({
+          where: { token: dto.inviteToken },
+          data: { status: 'EXPIRED' },
+        });
+        throw new UnauthorizedException('This invitation has expired.');
+      }
 
-  const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
-  const tokens = await this.tokenService.generateTokens(authenticatedUser);
-  await this.tokenService.updateRefreshTokenHash(user.id, tokens.refreshToken);
+      // Prevent using someone else's invite token with a different email.
+      if (this.userService.normalizeEmail(invitation.email) !== email) {
+        throw new UnauthorizedException('This invitation was issued to a different email address.');
+      }
 
-  // Verification email is best-effort — a delivery failure (bad API key,
-  // unverified sending domain, rate limit) must never fail an otherwise
-  // successful registration. The user can always request a resend via
-  // /auth/resend-verification once the email issue is fixed.
-  try {
-    await this.emailService.sendVerificationEmail(authenticatedUser);
-  } catch (error) {
-    this.logger.error(
-      `Registration succeeded for ${user.email}, but the verification email failed to send.`,
-      error instanceof Error ? error.stack : String(error),
+      resolvedRole = invitation.role as Role;
+      matchedInvitation = { id: invitation.id, email: invitation.email, role: resolvedRole };
+    }
+
+    const passwordHash = await this.passwordService.hash(dto.password);
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email,
+          fullName: dto.fullName.trim(),
+          phoneNumber: dto.phoneNumber?.trim() ?? null,
+          profilePictureUrl: dto.profilePictureUrl ?? null,
+          profilePicturePublicId: dto.profilePicturePublicId ?? null,
+          passwordHash,
+          role: resolvedRole,
+          isActive: true,
+          emailVerified: false,
+          // Still PENDING even for invited roles — the invite establishes
+          // WHO was invited and WHAT role, not that approval can be skipped.
+          approvalStatus: ApprovalStatus.PENDING,
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+        include: { member: { select: { id: true } } },
+      });
+
+      if (matchedInvitation) {
+        await tx.invitation.update({
+          where: { id: matchedInvitation.id },
+          data: { status: 'ACCEPTED', acceptedAt: new Date() },
+        });
+      }
+
+      return created;
+    });
+
+    await this.auditLogService.createLog(
+      { id: user.id },
+      {
+        action: AuditAction.CREATE_USER,
+        entity: 'User',
+        entityId: user.id,
+        description: matchedInvitation
+          ? `New user account created for ${user.email} via invitation (role: ${resolvedRole}).`
+          : `New user account created for ${user.email}.`,
+      },
     );
-  }
 
-  this.logger.log(`New user registered: ${user.email}`);
-  return { user: authenticatedUser, tokens };
-}
+    await this.notificationService.notifySuperAdmins({
+      title: 'New Member Registered',
+      message: `${user.fullName} (${user.email}) has created an account and is pending approval.`,
+      type: NotificationType.SYSTEM,
+    });
+
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+
+    try {
+      await this.emailService.sendVerificationEmail(authenticatedUser);
+    } catch (error) {
+      this.logger.error(
+        `Registration succeeded for ${user.email}, but the verification email failed to send.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
+    this.logger.log(`New user registered and pending approval: ${user.email} (role: ${resolvedRole})`);
+
+    return {
+      message: 'Registration successful. Your account is pending admin approval.',
+      user: authenticatedUser,
+    };
+  }
 
   /**
    * Cycle active application JWT security values against persistent hash records.
@@ -231,6 +288,11 @@ export class AuthService {
 
     if (!user.isActive) {
       throw new ForbiddenException('Account has been disabled.');
+    }
+
+    // Prevent refreshing tokens for non-approved users
+    if (user.approvalStatus !== ApprovalStatus.APPROVED) {
+      throw new ForbiddenException('Your account is not approved to perform this action.');
     }
 
     const validRefreshToken = await this.tokenService.verifyRefreshToken(user.refreshTokenHash, refreshToken);
@@ -275,6 +337,10 @@ export class AuthService {
 
     if (!user.isActive) {
       throw new ForbiddenException('Your account has been disabled.');
+    }
+
+    if (user.approvalStatus !== ApprovalStatus.APPROVED) {
+      throw new ForbiddenException('Your account is awaiting admin approval.');
     }
 
     return this.userService.mapAuthenticatedUser(user);
@@ -335,7 +401,6 @@ export class AuthService {
       }),
     ]);
 
-    // 1. Audit Log -> Password Reset
     await this.auditLogService.createLog(
       { id: user.id },
       {
@@ -346,7 +411,6 @@ export class AuthService {
       },
     );
 
-    // 2. Real-Time Notification
     const memberId = (user as any).member?.id;
     if (memberId) {
       await this.notificationService.notifyMember(memberId, {
@@ -401,7 +465,6 @@ export class AuthService {
       }),
     ]);
 
-    // 1. Audit Log -> Email Verified
     await this.auditLogService.createLog(
       { id: user.id },
       {
@@ -412,12 +475,11 @@ export class AuthService {
       },
     );
 
-    // 2. Real-Time Notification
     const memberId = (user as any).member?.id;
     if (memberId) {
       await this.notificationService.notifyMember(memberId, {
         title: 'Account Verified',
-        message: 'Your email address has been successfully verified. Welcome aboard!',
+        message: 'Your email address has been successfully verified.',
         type: NotificationType.SYSTEM,
       });
     }
@@ -427,35 +489,32 @@ export class AuthService {
   }
 
   /**
-   * Resend an unverified verification link message request out to the active user context profile.
+   * Resend an unverified verification link message request.
    */
   async resendVerificationEmail(userId: string): Promise<{ message: string }> {
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    include: { member: { select: { id: true } } },
-  });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { member: { select: { id: true } } },
+    });
 
-  if (!user) throw new UnauthorizedException('User not found.');
-  if (user.deletedAt) throw new UnauthorizedException('Account no longer exists.');
-  if (!user.isActive) throw new ForbiddenException('Account has been disabled.');
-  if (user.emailVerified) return { message: 'Email has already been verified.' };
+    if (!user) throw new UnauthorizedException('User not found.');
+    if (user.deletedAt) throw new UnauthorizedException('Account no longer exists.');
+    if (!user.isActive) throw new ForbiddenException('Account has been disabled.');
+    if (user.emailVerified) return { message: 'Email has already been verified.' };
 
-  const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
 
-  try {
-    await this.emailService.sendVerificationEmail(authenticatedUser);
-  } catch (error) {
-    this.logger.error(
-      `Failed to resend verification email to ${user.email}.`,
-      error instanceof Error ? error.stack : String(error),
-    );
-    // This one SHOULD surface as an error — the user explicitly asked for
-    // this email and got nothing, unlike registration where the account
-    // itself already succeeded.
-    throw new Error('Unable to send verification email right now. Please try again shortly.');
+    try {
+      await this.emailService.sendVerificationEmail(authenticatedUser);
+    } catch (error) {
+      this.logger.error(
+        `Failed to resend verification email to ${user.email}.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new Error('Unable to send verification email right now. Please try again shortly.');
+    }
+
+    this.logger.log(`Verification email resent to ${user.email}`);
+    return { message: 'A new verification email has been sent.' };
   }
-
-  this.logger.log(`Verification email resent to ${user.email}`);
-  return { message: 'A new verification email has been sent.' };
-}
 }
