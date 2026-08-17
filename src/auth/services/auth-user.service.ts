@@ -6,7 +6,7 @@ import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 
 @Injectable()
 export class AuthUserService {
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(private readonly prisma: PrismaService) { }
 
     normalizeEmail(email: string): string {
         return email.trim().toLowerCase();
@@ -21,6 +21,7 @@ export class AuthUserService {
             emailVerified: user.emailVerified,
             isActive: user.isActive,
             memberId: user.member?.id ?? null,
+            profilePictureUrl: user.profilePictureUrl ?? null,
             canAccessPrayerManagement: await this.computeCanAccessPrayerManagement(user),
         };
     }

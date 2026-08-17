@@ -11,4 +11,5 @@ export interface AuthenticatedUser {
   isActive: boolean;
   memberId: string | null;
   canAccessPrayerManagement: boolean;
+  profilePictureUrl: string | null;
 }
