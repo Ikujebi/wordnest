@@ -1018,6 +1018,7 @@ enum InviteStatus {
   PENDING
   ACCEPTED
   EXPIRED
+  CANCELLED
 }
 
 enum PrayerRequestCategory {

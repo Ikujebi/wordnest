@@ -8,9 +8,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EmailService } from '../../email/email.service';
+import { AuditLogService } from '../audit-log/audit-log.service';
 import { SendInviteDto } from './dto/send-invite.dto';
 import { InviteStatus, InviteRole, Role } from '@prisma/client';
 import * as crypto from 'crypto';
+import { AuditAction } from '../audit-log/enums/audit-action.enum'
 
 // Auth Services
 import { AuthPasswordService } from '../../auth/services/auth-password.service';
@@ -24,6 +26,7 @@ export class InvitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
+    private readonly auditLogService: AuditLogService,
     private readonly configService: ConfigService,
     private readonly passwordService: AuthPasswordService,
     private readonly tokenService: AuthTokenService,
@@ -178,4 +181,105 @@ export class InvitesService {
       message: 'Registration successful. Your account is pending admin approval.',
     };
   }
+  /**
+ * Lists pending (not yet accepted, not expired) invitations, optionally
+ * filtered by role — so the admins page can show only ADMIN/SUPER_ADMIN
+ * invites and the members page can show only MEMBER invites.
+ */
+async listPending(roles?: ('MEMBER' | 'ADMIN' | 'SUPER_ADMIN')[]) {
+  return this.prisma.invitation.findMany({
+    where: {
+      status: 'PENDING',
+      expiresAt: { gt: new Date() },
+      ...(roles && roles.length ? { role: { in: roles } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      status: true,
+      expiresAt: true,
+      createdAt: true,
+      invitedBy: { select: { id: true, fullName: true, email: true } },
+    },
+  });
+}
+
+/**
+ * Cancels a pending invite before it's accepted — needed so admins can
+ * clean up mistaken/stale invitations.
+ */
+async cancelInvite(invitationId: string, performingAdminId: string) {
+  const invite = await this.prisma.invitation.findUnique({ where: { id: invitationId } });
+
+  if (!invite || invite.status !== 'PENDING') {
+    throw new NotFoundException('Pending invitation not found.');
+  }
+
+  const cancelled = await this.prisma.invitation.update({
+    where: { id: invitationId },
+    data: { status: InviteStatus.CANCELLED },
+  });
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    {
+      action: AuditAction.CANCEL_INVITATION,
+      entity: 'Invitation',
+      entityId: invitationId,
+      description: `Cancelled pending invitation for ${invite.email}`,
+      oldValues: { status: invite.status },
+      newValues: { status: cancelled.status },
+    },
+  );
+
+  return { message: 'Invitation cancelled.' };
+}
+
+/**
+ * Resends a pending invite — new token, new expiry, same email/role.
+ */
+async resendInvite(invitationId: string, performingAdminId: string) {
+  const invite = await this.prisma.invitation.findUnique({ where: { id: invitationId } });
+
+  if (!invite || invite.status !== 'PENDING') {
+    throw new NotFoundException('Pending invitation not found.');
+  }
+
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+  const updated = await this.prisma.invitation.update({
+    where: { id: invitationId },
+    data: {
+      token: hashedToken,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days, matching your invite expiry elsewhere
+    },
+  });
+
+  const inviteUrl = `${process.env.FRONTEND_URL}/accept-invite?token=${rawToken}`;
+
+  await this.emailService.sendEmail(
+  invite.email,
+  'Reminder: You have been invited to WTBC Portal',
+  `
+    <p>This is a reminder that you've been invited to join the WTBC Portal as ${invite.role.replace('_', ' ')}.</p>
+    <p><a href="${inviteUrl}">${inviteUrl}</a></p>
+    <p>This link expires in 7 days.</p>
+  `,
+);
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    {
+      action: AuditAction.CREATE_INVITATION,
+      entity: 'Invitation',
+      entityId: invitationId,
+      description: `Resent invitation to ${invite.email}`,
+    },
+  );
+
+  return { message: `Invitation resent to ${invite.email}.` };
+}
 }
