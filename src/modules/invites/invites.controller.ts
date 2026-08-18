@@ -9,6 +9,7 @@ import {
   Req,
   UseGuards,
   UnauthorizedException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InvitesService } from './invites.service';
 import { SendInviteDto } from './dto/send-invite.dto';
@@ -31,8 +32,21 @@ export class InvitesController {
     return this.invitesService.sendInvite(dto);
   }
 
+  // Matches InviteClient.verifyToken via /api/invites/verify?token=...
+  @Get('verify')
+  async verifyToken(@Query('token') token: string) {
+    if (!token) {
+      throw new BadRequestException('Invitation token is required.');
+    }
+    return this.invitesService.validateToken(token);
+  }
+
+  // Legacy/Fallback route support for URL parameter pattern (/api/invites/validate/:token)
   @Get('validate/:token')
   async validateToken(@Param('token') token: string) {
+    if (!token) {
+      throw new BadRequestException('Invitation token is required.');
+    }
     return this.invitesService.validateToken(token);
   }
 
@@ -49,7 +63,7 @@ export class InvitesController {
     return this.invitesService.acceptInvite(dto);
   }
 
-  // NOTE: @Get('pending') is placed before any parameterized @Get(':id') route to prevent route collision.
+  // NOTE: Static routes like 'pending' MUST stay above parameterized routes like ':id'
   @Get('pending')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
