@@ -4,19 +4,21 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
-
+import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma, User } from '@prisma/client';
-
+import { USER_SECURITY_CONFIG } from './users.constants';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserPaginationQueryDto } from './dto/user-pagination-query.dto';
 import { USER_ERROR_MESSAGES } from './users.constants';
-
+import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
-
+import { AuditLogService } from '../modules/audit-log/audit-log.service';
+import { AuditAction } from '../modules/audit-log/enums/audit-action.enum'
 // Remove sensitive fields from API response
 export type SanitizedUser = Omit<User, 'passwordHash'>;
 
@@ -27,7 +29,9 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
-  ) {}
+    private readonly emailService: EmailService,
+    private readonly auditLogService: AuditLogService,
+  ) { }
 
   /**
    * Get paginated users
@@ -232,35 +236,142 @@ export class UsersService {
  * next N days. Filtered in JS since comparing month/day across a year
  * boundary (e.g. Dec 28 -> Jan 5) isn't a clean single SQL WHERE clause.
  */
-async getUpcomingBirthdays(days = 30) {
-  const members = await this.prisma.member.findMany({
-    where: { deletedAt: null, dateOfBirth: { not: null } },
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      dateOfBirth: true,
-      email: true,
-      phoneNumber: true,
-    },
-  });
+  async getUpcomingBirthdays(days = 30) {
+    const members = await this.prisma.member.findMany({
+      where: { deletedAt: null, dateOfBirth: { not: null } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        dateOfBirth: true,
+        email: true,
+        phoneNumber: true,
+      },
+    });
 
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  const withNextOccurrence = members
-    .map((m) => {
-      const dob = m.dateOfBirth!;
-      let next = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
-      if (next < startOfToday) {
-        next = new Date(now.getFullYear() + 1, dob.getMonth(), dob.getDate());
-      }
-      const daysUntil = Math.round((next.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
-      return { ...m, nextBirthday: next, daysUntil };
-    })
-    .filter((m) => m.daysUntil <= days)
-    .sort((a, b) => a.daysUntil - b.daysUntil);
+    const withNextOccurrence = members
+      .map((m) => {
+        const dob = m.dateOfBirth!;
+        let next = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
+        if (next < startOfToday) {
+          next = new Date(now.getFullYear() + 1, dob.getMonth(), dob.getDate());
+        }
+        const daysUntil = Math.round((next.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
+        return { ...m, nextBirthday: next, daysUntil };
+      })
+      .filter((m) => m.daysUntil <= days)
+      .sort((a, b) => a.daysUntil - b.daysUntil);
 
-  return withNextOccurrence;
-}
+    return withNextOccurrence;
+  }
+  /**
+   * Admin-triggered resend of the email verification link. Invalidates any
+   * prior unused token for this user and issues a fresh one — mirrors the
+   * self-service resend flow, just triggerable by an admin on someone else's
+   * behalf (for cases where the original email was lost/never arrived).
+   */
+  async resendVerificationEmail(userId: string, performingAdminId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user || user.deletedAt) {
+      throw new NotFoundException('User not found.');
+    }
+
+    if (user.emailVerified) {
+      throw new BadRequestException('This account is already verified.');
+    }
+
+    // Invalidate any outstanding unused tokens for this user before issuing
+    // a new one, so an old leaked/expired link can't still be used.
+    await this.prisma.emailVerificationToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+    await this.prisma.emailVerificationToken.create({
+      data: {
+        userId,
+        token: hashedToken,
+        expiresAt: new Date(Date.now() + USER_SECURITY_CONFIG.EMAIL_TOKEN_EXPIRY_MS),
+      },
+    });
+
+    const verifyUrl = `${process.env.FRONTEND_URL}/verify-email?token=${rawToken}`;
+
+    await this.emailService.sendEmail(
+      user.email,
+      'Verify your WTBC Portal account',
+      `
+    <p>Hello ${user.fullName || ''},</p>
+    <p>An administrator has resent your account verification link. Click below to verify your email address:</p>
+    <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+    <p>This link expires in 24 hours.</p>
+  `,
+    );
+
+    await this.auditLogService.createLog(
+      { id: performingAdminId },
+      {
+        action: AuditAction.EMAIL_VERIFIED, // or add a dedicated RESEND_VERIFICATION action to your enum
+        entity: 'USER',
+        entityId: userId,
+        description: `Resent verification email to ${user.email}`,
+      },
+    );
+
+    return { message: `Verification email resent to ${user.email}.` };
+  }
+
+  /**
+   * Deletes an account that never completed email verification. This is a
+   * HARD delete, not the soft-delete pattern used elsewhere — an unverified
+   * account has no real associated data (no member profile activity, no
+   * audit trail worth preserving beyond this log entry), so there's nothing
+   * to retain. If a Member profile was somehow already linked, this refuses
+   * and tells the admin to use the standard member-deactivation flow instead.
+   */
+  async deleteUnverifiedUser(userId: string, performingAdminId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { member: { select: { id: true } } },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    if (user.emailVerified) {
+      throw new BadRequestException(
+        'This account is already verified. Use the standard suspend/delete flow instead.',
+      );
+    }
+
+    if (user.member) {
+      throw new BadRequestException(
+        'This account has an associated member profile and cannot be hard-deleted. Use the standard member removal flow.',
+      );
+    }
+
+    await this.prisma.emailVerificationToken.deleteMany({ where: { userId } });
+    await this.prisma.user.delete({ where: { id: userId } });
+
+    await this.auditLogService.createLog(
+      { id: performingAdminId },
+      {
+        action: AuditAction.DELETE_USER,
+        entity: 'USER',
+        entityId: userId,
+        description: `Permanently deleted unverified account for ${user.email}`,
+        oldValues: { email: user.email, role: user.role },
+      },
+    );
+
+    return { message: 'Unverified account permanently deleted.' };
+  }
 }

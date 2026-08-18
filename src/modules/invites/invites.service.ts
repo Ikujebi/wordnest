@@ -131,7 +131,7 @@ export class InvitesService {
   /**
    * Accepts an invitation, provisions the new user account, updates the invitation state, and returns auth tokens.
    */
-  async acceptInvite(dto: { token: string; fullName: string; password: string; phoneNumber?: string }) {
+    async acceptInvite(dto: { token: string; fullName: string; password: string; phoneNumber?: string }) {
     const invite = await this.prisma.invitation.findUnique({ where: { token: dto.token } });
 
     if (!invite || invite.status !== InviteStatus.PENDING) {
@@ -149,20 +149,21 @@ export class InvitesService {
 
     const passwordHash = await this.passwordService.hash(dto.password);
 
-    // Invited users are pre-vetted by the inviting admin/super-admin — they
-    // skip the PENDING approval queue entirely, and are email-verified by
-    // definition (the invite itself proves email ownership).
+    // Invited users still require approval — the invite establishes WHO was
+    // invited and WHAT role, not that a human check can be skipped. Email is
+    // considered verified (the invite proves ownership), but the account is
+    // not usable until a super admin/admin approves it.
     const user = await this.prisma.user.create({
       data: {
         email: invite.email,
         fullName: dto.fullName.trim(),
         phoneNumber: dto.phoneNumber?.trim() ?? null,
         passwordHash,
-        role: invite.role as unknown as Role, // InviteRole values (MEMBER, ADMIN) map directly onto Role
+        role: invite.role as unknown as Role,
         isActive: true,
         emailVerified: true,
         emailVerifiedAt: new Date(),
-        approvalStatus: 'APPROVED',
+        approvalStatus: 'PENDING',
       },
     });
 
@@ -171,10 +172,10 @@ export class InvitesService {
       data: { status: InviteStatus.ACCEPTED, acceptedAt: new Date() },
     });
 
-    const authenticatedUser = await this.authUserService.mapAuthenticatedUser(user);
-    const tokens = await this.tokenService.generateTokens(authenticatedUser);
-    await this.tokenService.updateRefreshTokenHash(user.id, tokens.refreshToken);
-
-    return { user: authenticatedUser, tokens };
+    // No tokens issued — matches AuthService.register's behavior for any
+    // PENDING account. They log in normally once approved.
+    return {
+      message: 'Registration successful. Your account is pending admin approval.',
+    };
   }
 }

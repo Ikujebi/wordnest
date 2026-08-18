@@ -16,6 +16,9 @@ import {
   ParseFilePipe,
   MaxFileSizeValidator,
   FileTypeValidator,
+  UseGuards,
+  Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -35,6 +38,13 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserPaginationQueryDto } from './dto/user-pagination-query.dto';
 import { USER_ERROR_MESSAGES } from './users.constants';
+
+// Auth Guard & Role Imports (adjust relative paths to match your folder structure)
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client'; // or your custom Role enum
+import type{ AuthRequest } from '../auth/interfaces/auth-request.interface';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -79,11 +89,16 @@ export class UsersController {
     return plainToInstance(UserResponseDto, rawUsers);
   }
 
-   @Get('birthdays')
-@ApiOperation({ summary: 'Get members with birthdays in the next N days' })
-async getUpcomingBirthdays(@Query('days') days?: string) {
-  return this.usersService.getUpcomingBirthdays(days ? Number(days) : undefined);
-}
+  /**
+   * Keep static sub-routes ABOVE parameterized ':id' routes so NestJS doesn't evaluate 'birthdays' as an ID.
+   */
+  @Get('birthdays')
+  @ApiOperation({ summary: 'Get members with birthdays in the next N days' })
+  async getUpcomingBirthdays(@Query('days') days?: string) {
+    return this.usersService.getUpcomingBirthdays(
+      days ? Number(days) : undefined,
+    );
+  }
 
   @Get(':id')
   @ApiOperation({
@@ -161,10 +176,7 @@ async getUpcomingBirthdays(@Query('days') days?: string) {
     )
     file: Express.Multer.File,
   ): Promise<UserResponseDto> {
-    const rawUser = await this.usersService.updateProfilePicture(
-      id,
-      file,
-    );
+    const rawUser = await this.usersService.updateProfilePicture(id, file);
 
     return plainToInstance(UserResponseDto, rawUser);
   }
@@ -187,5 +199,37 @@ async getUpcomingBirthdays(@Query('days') days?: string) {
   ): Promise<void> {
     await this.usersService.softDelete(id);
   }
- 
+
+  @Post(':id/resend-verification')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @ApiOperation({
+    summary:
+      "Admin-triggered resend of an unverified account's verification email",
+  })
+  async resendVerification(
+    @Req() req: AuthRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    const performingAdminId = req.user?.id;
+    if (!performingAdminId)
+      throw new UnauthorizedException('Admin identification failed.');
+    return this.usersService.resendVerificationEmail(id, performingAdminId);
+  }
+
+  @Delete(':id/unverified')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @ApiOperation({
+    summary: 'Permanently delete an account that never completed email verification',
+  })
+  async deleteUnverified(
+    @Req() req: AuthRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    const performingAdminId = req.user?.id;
+    if (!performingAdminId)
+      throw new UnauthorizedException('Admin identification failed.');
+    return this.usersService.deleteUnverifiedUser(id, performingAdminId);
+  }
 }

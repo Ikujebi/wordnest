@@ -1,15 +1,14 @@
+// invites.controller.ts
 import {
   Controller,
   Post,
   Get,
   Body,
   Query,
-  Res,
   HttpCode,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
-import type{ Response } from 'express';
 import { InvitesService } from './invites.service';
 import { SendInviteDto } from './dto/send-invite.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
@@ -30,8 +29,6 @@ export class InvitesController {
     return this.invitesService.sendInvite(dto);
   }
 
-  // Public — anyone with a valid token needs to be able to verify it
-  // without being logged in yet.
   @Get('verify')
   async verifyToken(@Query('token') token: string) {
     return this.invitesService.validateToken(token);
@@ -39,24 +36,7 @@ export class InvitesController {
 
   @Post('accept')
   @HttpCode(HttpStatus.CREATED)
-  async acceptInvite(
-    @Body() dto: AcceptInviteDto,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    const result = await this.invitesService.acceptInvite(dto);
-
-    // Set refresh cookie matching your auth setup
-    response.cookie('refreshToken', result.tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    return {
-      user: result.user,
-      tokens: { accessToken: result.tokens.accessToken },
-    };
+  async acceptInvite(@Body() dto: AcceptInviteDto) {
+    return this.invitesService.acceptInvite(dto);
   }
 }
