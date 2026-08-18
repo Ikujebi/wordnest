@@ -31,7 +31,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { plainToInstance } from 'class-transformer';
-
+import { UnverifiedUsersQueryDto } from './dto/unverified-users-query.dto';
 import { UsersService } from './users.service';
 import { UserResponseDto } from './dto/user-response.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -44,14 +44,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client'; // or your custom Role enum
-import type{ AuthRequest } from '../auth/interfaces/auth-request.interface';
+import type { AuthRequest } from '../auth/interfaces/auth-request.interface';
 
 @ApiTags('Users')
 @ApiBearerAuth()
 @Controller('users')
 @UseInterceptors(ClassSerializerInterceptor)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly usersService: UsersService) { }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -99,7 +99,13 @@ export class UsersController {
       days ? Number(days) : undefined,
     );
   }
-
+  @Get('unverified')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @ApiOperation({ summary: 'List registered users who have not yet verified their email' })
+  async listUnverified(@Query() query: UnverifiedUsersQueryDto) {
+    return this.usersService.listUnverifiedByRole(query.roles);
+  }
   @Get(':id')
   @ApiOperation({
     summary: 'Get detailed user account by ID',

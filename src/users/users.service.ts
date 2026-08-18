@@ -374,4 +374,26 @@ export class UsersService {
 
     return { message: 'Unverified account permanently deleted.' };
   }
+  /**
+ * Users who completed registration (via invite or self-signup) but have
+ * not yet verified their email — distinct from pending Invitations, which
+ * only cover people who haven't registered at all yet.
+ */
+async listUnverifiedByRole(roles?: ('MEMBER' | 'ADMIN' | 'SUPER_ADMIN')[]) {
+  return this.prisma.user.findMany({
+    where: {
+      deletedAt: null,
+      emailVerified: false,
+      ...(roles && roles.length ? { role: { in: roles } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+      createdAt: true,
+    },
+  });
+}
 }
