@@ -32,7 +32,7 @@ model User {
 
   role     Role    @default(MEMBER)
   isActive Boolean @default(true)
-
+  
   deletedAt DateTime? @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @db.Timestamptz(6)
   updatedAt DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
@@ -56,7 +56,7 @@ model User {
   answeredPrayerRequests  PrayerRequest[]          @relation("PrayerAnsweredBy")
   prayerRequestNotes      PrayerRequestNote[]
   rsvps                   EventRsvp[]
-
+  sentInvitations Invitation[] @relation("SentInvitations")
   @@index([role])
   @@index([isActive])
 }
@@ -768,15 +768,19 @@ model ContactMessage {
 }
 
 model Invitation {
-  id         String       @id @default(dbgenerated("(gen_random_uuid())::text"))
-  email      String       @unique
-  role       InviteRole   @default(MEMBER)
-  token      String       @unique
-  status     InviteStatus @default(PENDING)
-  expiresAt  DateTime     @db.Timestamptz(6)
-  createdAt  DateTime     @default(now()) @db.Timestamptz(6)
-  updatedAt  DateTime     @updatedAt @db.Timestamptz(6)
-  acceptedAt DateTime?    @db.Timestamptz(6)
+  id          String       @id @default(dbgenerated("(gen_random_uuid())::text"))
+  email       String       @unique
+  role        InviteRole   @default(MEMBER)
+  token       String       @unique
+  status      InviteStatus @default(PENDING)
+  expiresAt   DateTime     @db.Timestamptz(6)
+  createdAt   DateTime     @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime     @updatedAt @db.Timestamptz(6)
+  acceptedAt  DateTime?    @db.Timestamptz(6)
+
+  // Relation to tracking admin
+  invitedById String?
+  invitedBy   User?        @relation("SentInvitations", fields: [invitedById], references: [id], onDelete: SetNull)
 
   @@index([token])
 }
