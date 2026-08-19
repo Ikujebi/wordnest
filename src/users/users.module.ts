@@ -4,13 +4,14 @@ import { UsersController } from './users.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { AuditLogModule } from '../modules/audit-log/audit-log.module';
-import { EmailService } from '../email/email.service';
+import { EmailModule } from '../email/email.module';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
     PrismaModule,
     CloudinaryModule,
+    EmailModule,
     AuditLogModule,
     forwardRef(() => AuthModule), // 👈 Use forwardRef here
   ],
@@ -19,7 +20,7 @@ import { AuthModule } from '../auth/auth.module';
   ],
   providers: [
     UsersService,
-    EmailService,
+    
   ],
   exports: [
     UsersService,
