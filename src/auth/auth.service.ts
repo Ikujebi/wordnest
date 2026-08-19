@@ -492,29 +492,29 @@ export class AuthService {
    * Resend an unverified verification link message request.
    */
   async resendVerificationEmail(userId: string): Promise<{ message: string }> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { member: { select: { id: true } } },
-    });
+  const user = await this.prisma.user.findUnique({
+    where: { id: userId },
+    include: { member: { select: { id: true } } },
+  });
 
-    if (!user) throw new UnauthorizedException('User not found.');
-    if (user.deletedAt) throw new UnauthorizedException('Account no longer exists.');
-    if (!user.isActive) throw new ForbiddenException('Account has been disabled.');
-    if (user.emailVerified) return { message: 'Email has already been verified.' };
+  if (!user) throw new UnauthorizedException('User not found.');
+  if (user.deletedAt) throw new UnauthorizedException('Account no longer exists.');
+  if (!user.isActive) throw new ForbiddenException('Account has been disabled.');
+  if (user.emailVerified) return { message: 'Email has already been verified.' };
 
-    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+  const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
 
-    try {
-      await this.emailService.sendVerificationEmail(authenticatedUser);
-    } catch (error) {
-      this.logger.error(
-        `Failed to resend verification email to ${user.email}.`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      throw new Error('Unable to send verification email right now. Please try again shortly.');
-    }
-
-    this.logger.log(`Verification email resent to ${user.email}`);
-    return { message: 'A new verification email has been sent.' };
+  try {
+    // Delegates directly to AuthEmailService to guarantee token generation consistency
+    await this.emailService.sendVerificationEmail(authenticatedUser);
+  } catch (error) {
+    this.logger.error(
+      `Failed to resend verification email to ${user.email}.`,
+      error instanceof Error ? error.stack : String(error),
+    );
+    throw new Error('Unable to send verification email right now. Please try again shortly.');
   }
+
+  return { message: 'A new verification email has been sent.' };
+}
 }
