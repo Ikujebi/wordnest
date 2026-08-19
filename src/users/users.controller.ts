@@ -19,6 +19,8 @@ import {
   UseGuards,
   Req,
   UnauthorizedException,
+  Inject,       // 👈 Add this
+  forwardRef,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -54,6 +56,7 @@ import { AuthService } from '../auth/auth.service';
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
+    @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
   ) {}
 

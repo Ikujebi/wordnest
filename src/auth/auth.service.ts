@@ -4,6 +4,8 @@ import {
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
+  Inject,       // 👈 Added
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -34,6 +36,7 @@ export class AuthService {
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
     private readonly tokenService: AuthTokenService,

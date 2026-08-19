@@ -1,5 +1,5 @@
 // src/auth/auth.module.ts
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -14,7 +14,6 @@ import { AuthPasswordService } from './services/auth-password.service';
 import { AuthLockService } from './services/auth-lock.service';
 import { AuthEmailService } from './services/auth-email.service';
 import { AuthUserService } from './services/auth-user.service';
-
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { RefreshTokenStrategy } from './strategies/refresh.strategy';
@@ -31,7 +30,7 @@ import { AuditLogModule } from '../modules/audit-log/audit-log.module';
   imports: [
     EmailModule,
     CloudinaryModule,
-    UsersModule,
+    forwardRef(() => UsersModule),
     NotificationsModule,
     AuditLogModule,
 
