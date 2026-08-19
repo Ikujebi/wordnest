@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
-  Inject,       // 👈 Added
+  Inject,
   forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -208,6 +208,11 @@ export class AuthService {
 
     const passwordHash = await this.passwordService.hash(dto.password);
 
+    // Parse full name into first and last name components for Member profile creation
+    const nameParts = dto.fullName.trim().split(' ');
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ') || '';
+
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
@@ -225,6 +230,15 @@ export class AuthService {
           approvalStatus: ApprovalStatus.PENDING,
           failedLoginAttempts: 0,
           lockedUntil: null,
+          // 💥 Automatically create linked Member record upon registration
+          member: {
+            create: {
+              firstName,
+              lastName,
+              email,
+              phoneNumber: dto.phoneNumber?.trim() ?? null,
+            },
+          },
         },
         include: { member: { select: { id: true } } },
       });
@@ -495,29 +509,29 @@ export class AuthService {
    * Resend an unverified verification link message request.
    */
   async resendVerificationEmail(userId: string): Promise<{ message: string }> {
-  const user = await this.prisma.user.findUnique({
-    where: { id: userId },
-    include: { member: { select: { id: true } } },
-  });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { member: { select: { id: true } } },
+    });
 
-  if (!user) throw new UnauthorizedException('User not found.');
-  if (user.deletedAt) throw new UnauthorizedException('Account no longer exists.');
-  if (!user.isActive) throw new ForbiddenException('Account has been disabled.');
-  if (user.emailVerified) return { message: 'Email has already been verified.' };
+    if (!user) throw new UnauthorizedException('User not found.');
+    if (user.deletedAt) throw new UnauthorizedException('Account no longer exists.');
+    if (!user.isActive) throw new ForbiddenException('Account has been disabled.');
+    if (user.emailVerified) return { message: 'Email has already been verified.' };
 
-  const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
 
-  try {
-    // Delegates directly to AuthEmailService to guarantee token generation consistency
-    await this.emailService.sendVerificationEmail(authenticatedUser);
-  } catch (error) {
-    this.logger.error(
-      `Failed to resend verification email to ${user.email}.`,
-      error instanceof Error ? error.stack : String(error),
-    );
-    throw new Error('Unable to send verification email right now. Please try again shortly.');
+    try {
+      // Delegates directly to AuthEmailService to guarantee token generation consistency
+      await this.emailService.sendVerificationEmail(authenticatedUser);
+    } catch (error) {
+      this.logger.error(
+        `Failed to resend verification email to ${user.email}.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new Error('Unable to send verification email right now. Please try again shortly.');
+    }
+
+    return { message: 'A new verification email has been sent.' };
   }
-
-  return { message: 'A new verification email has been sent.' };
-}
 }

@@ -15,6 +15,11 @@ export class CreateUserDto {
   fullName!: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  phoneNumber?: string;
+
+  @IsOptional()
   @IsEnum(Role, { message: 'Invalid user role provided.' })
   role?: Role;
 

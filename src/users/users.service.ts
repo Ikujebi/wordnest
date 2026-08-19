@@ -17,7 +17,6 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { AuditLogService } from '../modules/audit-log/audit-log.service';
 import { AuditAction } from '../modules/audit-log/enums/audit-action.enum';
 
-// Remove sensitive fields from API response
 export type SanitizedUser = Omit<User, 'passwordHash'>;
 
 @Injectable()
@@ -28,14 +27,11 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly auditLogService: AuditLogService,
-  ) { }
+  ) {}
 
-  /**
-   * Get paginated users
-   */
   async findAll(query: UserPaginationQueryDto): Promise<User[]> {
     const { page = 1, limit = 10, search, role, isActive } = query;
-    const skip = (page - 1) * limit;
+    const skip = (Number(page) - 1) * Number(limit);
 
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
@@ -52,15 +48,12 @@ export class UsersService {
     return this.prisma.user.findMany({
       where,
       skip,
-      take: limit,
+      take: Number(limit),
       include: { member: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  /**
-   * Find user by ID
-   */
   async findOne(id: string): Promise<User> {
     const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },
@@ -74,9 +67,6 @@ export class UsersService {
     return user;
   }
 
-  /**
-   * Find by email (auth use)
-   */
   async findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findFirst({
       where: {
@@ -87,20 +77,35 @@ export class UsersService {
     });
   }
 
-  /**
-   * Create user
-   */
   async create(dto: CreateUserDto): Promise<SanitizedUser> {
-    const { password, ...data } = dto;
-
+    const { password, fullName, email, phoneNumber, ...data } = dto;
+    const normalizedEmail = email.trim().toLowerCase();
     const passwordHash = await bcrypt.hash(password, 10);
 
+    const nameParts = fullName.trim().split(' ');
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ') || '';
+
     try {
-      const user = await this.prisma.user.create({
-        data: {
-          ...data,
-          passwordHash,
-        },
+      const user = await this.prisma.$transaction(async (tx) => {
+        return tx.user.create({
+          data: {
+            ...data,
+            fullName: fullName.trim(),
+            email: normalizedEmail,
+            phoneNumber: phoneNumber?.trim() ?? null,
+            passwordHash,
+            member: {
+              create: {
+                firstName,
+                lastName,
+                email: normalizedEmail,
+                phoneNumber: phoneNumber?.trim() ?? null,
+              },
+            },
+          },
+          include: { member: true },
+        });
       });
 
       const { passwordHash: _, ...sanitized } = user;
@@ -120,9 +125,6 @@ export class UsersService {
     }
   }
 
-  /**
-   * Update user
-   */
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const data: Prisma.UserUpdateInput = {};
 
@@ -132,10 +134,31 @@ export class UsersService {
     if (typeof dto.isActive === 'boolean') data.isActive = dto.isActive;
 
     try {
-      return await this.prisma.user.update({
-        where: { id },
-        data,
-        include: { member: true },
+      return await this.prisma.$transaction(async (tx) => {
+        const updatedUser = await tx.user.update({
+          where: { id },
+          data,
+          include: { member: true },
+        });
+
+        if (updatedUser.member) {
+          const memberData: Prisma.MemberUpdateInput = {};
+          if (dto.email) memberData.email = dto.email.trim().toLowerCase();
+          if (dto.fullName) {
+            const nameParts = dto.fullName.trim().split(' ');
+            memberData.firstName = nameParts[0];
+            memberData.lastName = nameParts.slice(1).join(' ') || '';
+          }
+
+          if (Object.keys(memberData).length > 0) {
+            await tx.member.update({
+              where: { id: updatedUser.member.id },
+              data: memberData,
+            });
+          }
+        }
+
+        return updatedUser;
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -154,9 +177,6 @@ export class UsersService {
     }
   }
 
-  /**
-   * Upload profile picture
-   */
   async updateProfilePicture(
     id: string,
     file: Express.Multer.File,
@@ -171,9 +191,7 @@ export class UsersService {
 
     try {
       if (user.profilePicturePublicId) {
-        await this.cloudinaryService.deleteFile(
-          user.profilePicturePublicId,
-        );
+        await this.cloudinaryService.deleteFile(user.profilePicturePublicId);
       }
 
       const uploaded = await this.cloudinaryService.uploadFile(file, {
@@ -204,17 +222,21 @@ export class UsersService {
     }
   }
 
-  /**
-   * Soft delete user
-   */
   async softDelete(id: string): Promise<void> {
     try {
-      await this.prisma.user.update({
-        where: { id },
-        data: {
-          isActive: false,
-          deletedAt: new Date(),
-        },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id },
+          data: {
+            isActive: false,
+            deletedAt: new Date(),
+          },
+        });
+
+        await tx.member.updateMany({
+          where: { userId: id },
+          data: { deletedAt: new Date() },
+        });
       });
     } catch (error) {
       if (
@@ -229,61 +251,6 @@ export class UsersService {
     }
   }
 
-  /**
-   * Members with a birthday (month+day, ignoring year) falling within the
-   * next N days. Filtered in JS since comparing month/day across a year
-   * boundary (e.g. Dec 28 -> Jan 5) isn't a clean single SQL WHERE clause.
-   */
-  async getUpcomingBirthdays(days = 30) {
-    const members = await this.prisma.member.findMany({
-      where: { deletedAt: null, dateOfBirth: { not: null } },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        dateOfBirth: true,
-        email: true,
-        phoneNumber: true,
-      },
-    });
-
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    const withNextOccurrence = members
-      .map((m) => {
-        const dob = m.dateOfBirth!;
-        let next = new Date(now.getFullYear(), dob.getMonth(), dob.getDate());
-        if (next < startOfToday) {
-          next = new Date(now.getFullYear() + 1, dob.getMonth(), dob.getDate());
-        }
-        const daysUntil = Math.round((next.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
-        return { ...m, nextBirthday: next, daysUntil };
-      })
-      .filter((m) => m.daysUntil <= days)
-      .sort((a, b) => a.daysUntil - b.daysUntil);
-
-    return withNextOccurrence;
-  }
-
-  // NOTE: resendVerificationEmail was previously duplicated here with its
-  // own hand-rolled token scheme (crypto + SHA-256, written directly into
-  // EmailVerificationToken, sent via the generic EmailService). That token
-  // scheme did not match what AuthEmailService/AuthService.verifyEmail()
-  // actually validates, so links generated by it would arrive but never
-  // verify. It has been removed. The correct implementation lives in
-  // AuthService.resendVerificationEmail() — UsersController calls that
-  // directly (via AuthService injection) for the admin-triggered resend
-  // route. Do not re-add a parallel implementation here.
-
-  /**
-   * Deletes an account that never completed email verification. This is a
-   * HARD delete, not the soft-delete pattern used elsewhere — an unverified
-   * account has no real associated data (no member profile activity, no
-   * audit trail worth preserving beyond this log entry), so there's nothing
-   * to retain. If a Member profile was somehow already linked, this refuses
-   * and tells the admin to use the standard member-deactivation flow instead.
-   */
   async deleteUnverifiedUser(userId: string, performingAdminId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -323,11 +290,6 @@ export class UsersService {
     return { message: 'Unverified account permanently deleted.' };
   }
 
-  /**
-   * Users who completed registration (via invite or self-signup) but have
-   * not yet verified their email — distinct from pending Invitations, which
-   * only cover people who haven't registered at all yet.
-   */
   async listUnverifiedByRole(roles?: ('MEMBER' | 'ADMIN' | 'SUPER_ADMIN')[]) {
     return this.prisma.user.findMany({
       where: {
@@ -344,5 +306,30 @@ export class UsersService {
         createdAt: true,
       },
     });
+  }
+
+  async getUpcomingBirthdays(daysAhead: number = 30) {
+    try {
+      return await this.prisma.$queryRaw`
+        SELECT 
+          m.id, 
+          m."firstName", 
+          m."lastName", 
+          m."dob", 
+          u."profilePictureUrl"
+        FROM "Member" m
+        LEFT JOIN "User" u ON m."userId" = u.id
+        WHERE m."deletedAt" IS NULL
+          AND m."dob" IS NOT NULL
+          AND (
+            (EXTRACT(DOY FROM m."dob") - EXTRACT(DOY FROM CURRENT_DATE) + 365) % 365
+          ) <= ${daysAhead}
+        ORDER BY 
+          ((EXTRACT(DOY FROM m."dob") - EXTRACT(DOY FROM CURRENT_DATE) + 365) % 365) ASC;
+      `;
+    } catch (error) {
+      this.logger.error(error);
+      throw new InternalServerErrorException('Failed to fetch upcoming birthdays.');
+    }
   }
 }
