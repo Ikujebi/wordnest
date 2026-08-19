@@ -5,7 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-
+import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
@@ -90,6 +90,7 @@ import { InvitesModule } from './modules/invites/invites.module';
     ContactModule,
     SystemModule,
     InvitesModule,
+    HealthModule,
   ],
 
   controllers: [AppController],
