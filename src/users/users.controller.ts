@@ -39,19 +39,23 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { UserPaginationQueryDto } from './dto/user-pagination-query.dto';
 import { USER_ERROR_MESSAGES } from './users.constants';
 
-// Auth Guard & Role Imports (adjust relative paths to match your folder structure)
+// Auth Guard & Role Imports
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { Role } from '@prisma/client'; // or your custom Role enum
+import { Role } from '@prisma/client';
 import type { AuthRequest } from '../auth/interfaces/auth-request.interface';
+import { AuthService } from '../auth/auth.service'; // 👈 Added AuthService import
 
 @ApiTags('Users')
 @ApiBearerAuth()
 @Controller('users')
 @UseInterceptors(ClassSerializerInterceptor)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) { }
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService, // 👈 Inject AuthService here
+  ) { }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -90,7 +94,7 @@ export class UsersController {
   }
 
   /**
-   * Keep static sub-routes ABOVE parameterized ':id' routes so NestJS doesn't evaluate 'birthdays' as an ID.
+   * Keep static sub-routes ABOVE parameterized ':id' routes so NestJS doesn't evaluate 'birthdays' or 'unverified' as an ID.
    */
   @Get('birthdays')
   @ApiOperation({ summary: 'Get members with birthdays in the next N days' })
@@ -99,13 +103,17 @@ export class UsersController {
       days ? Number(days) : undefined,
     );
   }
+
   @Get('unverified')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  @ApiOperation({ summary: 'List registered users who have not yet verified their email' })
+  @ApiOperation({
+    summary: 'List registered users who have not yet verified their email',
+  })
   async listUnverified(@Query() query: UnverifiedUsersQueryDto) {
     return this.usersService.listUnverifiedByRole(query.roles);
   }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get detailed user account by ID',
@@ -220,14 +228,17 @@ export class UsersController {
     const performingAdminId = req.user?.id;
     if (!performingAdminId)
       throw new UnauthorizedException('Admin identification failed.');
-    return this.usersService.resendVerificationEmail(id, performingAdminId);
+
+    // Pass only the target user's id
+    return this.authService.resendVerificationEmail(id);
   }
 
   @Delete(':id/unverified')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @ApiOperation({
-    summary: 'Permanently delete an account that never completed email verification',
+    summary:
+      'Permanently delete an account that never completed email verification',
   })
   async deleteUnverified(
     @Req() req: AuthRequest,
@@ -236,6 +247,7 @@ export class UsersController {
     const performingAdminId = req.user?.id;
     if (!performingAdminId)
       throw new UnauthorizedException('Admin identification failed.');
+
     return this.usersService.deleteUnverifiedUser(id, performingAdminId);
   }
 }
