@@ -5,12 +5,13 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CloudinaryModule } from '../cloudinary/cloudinary.module';
 import { AuditLogModule } from '../modules/audit-log/audit-log.module'; // 👈 Import AuditLogModule
 import { EmailService } from '../email/email.service';
+import { AuthModule } from '../auth/auth.module';
 @Module({
   imports: [
     PrismaModule,
     CloudinaryModule,
     AuditLogModule, // 👈 Registered here so AuditInterceptor can access AuditLogService
-    
+    AuthModule,
   ],
   controllers: [
     UsersController,
