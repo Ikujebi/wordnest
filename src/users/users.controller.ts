@@ -45,7 +45,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import type { AuthRequest } from '../auth/interfaces/auth-request.interface';
-import { AuthService } from '../auth/auth.service'; // 👈 Added AuthService import
+import { AuthService } from '../auth/auth.service';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -54,8 +54,8 @@ import { AuthService } from '../auth/auth.service'; // 👈 Added AuthService im
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
-    private readonly authService: AuthService, // 👈 Inject AuthService here
-  ) { }
+    private readonly authService: AuthService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -229,7 +229,6 @@ export class UsersController {
     if (!performingAdminId)
       throw new UnauthorizedException('Admin identification failed.');
 
-    // Pass only the target user's id
     return this.authService.resendVerificationEmail(id);
   }
 
