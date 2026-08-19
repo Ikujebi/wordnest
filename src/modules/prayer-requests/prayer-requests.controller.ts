@@ -17,6 +17,7 @@ import { PrayerRequestNoteDto } from './dto/prayer-request-note.dto';
 import { UpdatePrayerStatusDto } from './dto/update-prayer-status.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PrayerAccessGuard } from './guards/prayer-access.guard';
+import { PrayerLeaderGuard } from './guards/prayer-leader.guard';
 
 @Controller('prayer-requests')
 export class PrayerRequestsController {
@@ -33,7 +34,8 @@ export class PrayerRequestsController {
   }
 
   /**
-   * Full list — Super Admin or Prayer Department leader only.
+   * Full list — Super Admin or any active Prayer Department member
+   * (LEADER or MEMBER).
    */
   @UseGuards(JwtAuthGuard, PrayerAccessGuard)
   @Get()
@@ -53,8 +55,10 @@ export class PrayerRequestsController {
   }
 
   /**
-   * Assignee list for the "Assign to" dropdown — leader/super-admin only,
-   * since only they perform assignment.
+   * Assignee list for the "Assign to" dropdown — any active Prayer
+   * Department member or Super Admin can view it, since the dropdown
+   * itself is just informational; the actual assignment action below is
+   * what's restricted to leaders.
    */
   @UseGuards(JwtAuthGuard, PrayerAccessGuard)
   @Get('eligible-assignees')
@@ -90,9 +94,11 @@ export class PrayerRequestsController {
   }
 
   /**
-   * Assignment is exclusively a manager action.
+   * Assignment is exclusively a Prayer Department LEADER or Super Admin
+   * action — a regular MEMBER-role department member can view/work
+   * requests (see findAll/my-assigned) but cannot assign them to others.
    */
-  @UseGuards(JwtAuthGuard, PrayerAccessGuard)
+  @UseGuards(JwtAuthGuard, PrayerLeaderGuard)
   @Patch(':id/assign')
   assignPrayer(@Param('id') id: string, @Body() dto: AssignPrayerRequestDto, @Req() req: any) {
     return this.prayerRequestsService.assignPrayer(id, dto, req.user.id);
