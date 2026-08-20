@@ -66,6 +66,7 @@ export class CommunicationsService {
         status: initialStatus,
         scheduledAt: dto.scheduledAt,
         createdById: dto.createdById,
+        imageUrls: dto.imageUrls ?? [],
       },
     });
 

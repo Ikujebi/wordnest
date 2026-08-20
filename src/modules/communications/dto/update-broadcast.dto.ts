@@ -20,14 +20,14 @@ import { CommunicationType, CommunicationChannel } from '@prisma/client';
  *
  * Example:
  * [
- * {
- * channel: "EMAIL",
- * enabled: true
- * },
- * {
- * channel: "SMS",
- * enabled: false
- * }
+ *   {
+ *     channel: "EMAIL",
+ *     enabled: true
+ *   },
+ *   {
+ *     channel: "SMS",
+ *     enabled: false
+ *   }
  * ]
  */
 export class BroadcastChannelDto {
@@ -87,13 +87,26 @@ export class UpdateBroadcastDto {
   type?: CommunicationType; 
 
   /**
+   * Optional image attachments/media URLs associated with the broadcast
+   */
+  @IsOptional()
+  @IsArray({
+    message: 'imageUrls must be an array.',
+  })
+  @IsString({
+    each: true,
+    message: 'Each item in imageUrls must be a string.',
+  })
+  imageUrls?: string[];
+
+  /**
    * Simple channels array
    *
    * Example:
    * [
-   * "EMAIL",
-   * "SMS",
-   * "PUSH"
+   *   "EMAIL",
+   *   "SMS",
+   *   "PUSH"
    * ]
    */
   @IsOptional()
@@ -114,10 +127,10 @@ export class UpdateBroadcastDto {
    *
    * Example:
    * [
-   * {
-   * channel: "EMAIL",
-   * enabled: true
-   * }
+   *   {
+   *     channel: "EMAIL",
+   *     enabled: true
+   *   }
    * ]
    */
   @IsOptional()
@@ -150,8 +163,8 @@ export class UpdateBroadcastDto {
    *
    * Example:
    * {
-   * campaign: "July Newsletter",
-   * priority: "high"
+   *   campaign: "July Newsletter",
+   *   priority: "high"
    * }
    */
   @IsOptional()

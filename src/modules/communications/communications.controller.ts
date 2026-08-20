@@ -9,9 +9,9 @@ import {
   Query,
   Req,
   ParseUUIDPipe,
-  UseGuards,
+  UseGuards,UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, UseInterceptors,
 } from '@nestjs/common';
-
+import {FileInterceptor} from '@nestjs/platform-express'
 import { CommunicationsService } from './communications.service';
 import { CreateBroadcastDto } from './dto/create-broadcast.dto';
 import { UpdateBroadcastDto } from './dto/update-broadcast.dto';
@@ -22,11 +22,11 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
-
+import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 @Controller('communications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class CommunicationsController {
-  constructor(private readonly communicationsService: CommunicationsService) {}
+  constructor(private readonly communicationsService: CommunicationsService,private readonly cloudinaryService: CloudinaryService) {}
 
   @Post()
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
@@ -135,5 +135,22 @@ export class CommunicationsController {
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   archive(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.communicationsService.archive(id, req.user.id);
+  }
+    @Post('upload-image')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @UseInterceptors(FileInterceptor('image'))
+  async uploadImage(
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new FileTypeValidator({ fileType: /(jpg|jpeg|png|webp)$/i }),
+        ],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    const result = await this.cloudinaryService.uploadFile(file, { folder: 'broadcast-images' });
+    return { url: result.secure_url };
   }
 }

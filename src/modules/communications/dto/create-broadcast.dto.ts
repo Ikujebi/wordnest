@@ -92,4 +92,8 @@ export class CreateBroadcastDto {
     () => RecipientFilterDto,
   )
   recipients?: RecipientFilterDto;
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  imageUrls?: string[];
 }

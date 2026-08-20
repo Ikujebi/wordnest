@@ -12,12 +12,14 @@ export class WhatsappService {
 
   /**
    * Send WhatsApp message to a single recipient and log the tracking status.
+   * Supports optional media attachments (e.g. image URLs).
    */
   async sendWhatsapp(
     communicationId: string,
     recipientId: string,
     phone: string,
     content: string,
+    mediaUrl?: string,
   ): Promise<boolean> {
     if (!phone) {
       await this.updateRecipientStatus(recipientId, RecipientStatus.FAILED);
@@ -26,18 +28,23 @@ export class WhatsappService {
     }
 
     try {
-      this.logger.debug(`Sending WhatsApp message to ${phone}...`);
+      this.logger.debug(
+        `Sending WhatsApp message to ${phone}${mediaUrl ? ` with media: ${mediaUrl}` : ''}...`,
+      );
 
       // ----------------------------------------------------------------
       // 🔥 REPLACE THIS WITH YOUR BUSINESS WHATSAPP PROVIDER SDK / HTTP CALL
       // Example (Meta Graph API / Twilio WhatsApp):
       // const response = await this.whatsappClient.messages.create({ 
       //   to: `whatsapp:${phone}`, 
-      //   body: content 
+      //   body: content,
+      //   mediaUrl: mediaUrl ? [mediaUrl] : undefined,
       // });
       // ----------------------------------------------------------------
 
-      const providerResponse = 'WhatsApp message dispatched to provider queue';
+      const providerResponse = mediaUrl
+        ? `WhatsApp media message dispatched to provider queue (${mediaUrl})`
+        : 'WhatsApp message dispatched to provider queue';
 
       // Update recipient state to SENT
       await this.updateRecipientStatus(recipientId, RecipientStatus.SENT);

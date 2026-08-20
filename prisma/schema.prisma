@@ -606,7 +606,7 @@ model Communication {
   channels      CommunicationChannel[]
   recipients    CommunicationRecipient[]
   logs          CommunicationLog[]
-
+  imageUrls String[] @default([])
   @@index([createdById])
   @@index([status])
 }

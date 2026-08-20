@@ -13,7 +13,7 @@ import { BroadcastService } from './services/broadcast.service';
 import { RecipientService } from './services/recipient.service'; 
 import { StatisticsService } from './services/statistics.service'; 
 import { SchedulerService } from './services/scheduler.service'; 
-
+import { CloudinaryModule } from '../../cloudinary/cloudinary.module';
 import { EmailService } from './channels/email.service';
 import { SmsService } from './channels/sms.service';
 import { WhatsappService } from './channels/whatsapp.service';
@@ -29,6 +29,7 @@ import { SmsProcessor } from './channels/sms/sms.processor';
     HttpModule,
     RedisQueueModule,
     NotificationsModule,
+    CloudinaryModule,
     AuditLogModule,
     BullModule.registerQueue(
       { name: 'sms' },
