@@ -18,19 +18,21 @@ import { UpdatePrayerStatusDto } from './dto/update-prayer-status.dto';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PrayerAccessGuard } from './guards/prayer-access.guard';
 import { PrayerLeaderGuard } from './guards/prayer-leader.guard';
+import { OptionalJwtAuthGuard } from './guards/optional-jwt-auth.guard';
 
 @Controller('prayer-requests')
 export class PrayerRequestsController {
-  constructor(private readonly prayerRequestsService: PrayerRequestsService) {}
+  constructor(private readonly prayerRequestsService: PrayerRequestsService) { }
 
   /**
-   * Public submission route — no auth required. Anyone on the public
-   * website can submit a prayer request.
+   * Public submission route — reachable without login. If the caller IS
+   * logged in, OptionalJwtAuthGuard populates req.user so the request can
+   * be linked to their account (unless dto.anonymous is set).
    */
+  @UseGuards(OptionalJwtAuthGuard)
   @Post()
   create(@Body() dto: CreatePrayerRequestDto, @Req() req: any) {
-    const actorId = req.user?.id;
-    return this.prayerRequestsService.create(dto, actorId);
+    return this.prayerRequestsService.create(dto, req.user?.id);
   }
 
   /**
@@ -53,7 +55,14 @@ export class PrayerRequestsController {
   findMyAssigned(@Req() req: any) {
     return this.prayerRequestsService.findMyAssigned(req.user.id);
   }
-
+  /**
+   * A logged-in user's own submitted prayer requests.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('my-requests')
+  findMyRequests(@Req() req: any) {
+    return this.prayerRequestsService.findMyRequests(req.user.id);
+  }
   /**
    * Assignee list for the "Assign to" dropdown — any active Prayer
    * Department member or Super Admin can view it, since the dropdown
@@ -67,7 +76,7 @@ export class PrayerRequestsController {
   }
 
   /**
-   * Single item — accessible to full managers OR the assignee themself.
+   * Single item — accessible to full managers, assigned intercessors, OR the requester.
    */
   @UseGuards(JwtAuthGuard)
   @Get(':id')
@@ -84,7 +93,7 @@ export class PrayerRequestsController {
 
   /**
    * Dedicated status endpoint (matches frontend's updatePrayerStatus) —
-   * accessible to managers or the assignee working the request.
+   * accessible to managers, assigned intercessors, or the requester.
    */
   @UseGuards(JwtAuthGuard)
   @Patch(':id/status')

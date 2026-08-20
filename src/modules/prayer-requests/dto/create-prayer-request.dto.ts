@@ -135,4 +135,12 @@ export class CreatePrayerRequestDto {
   @IsString()
   @MaxLength(1000)
   additionalNotes?: string;
+
+    @ApiPropertyOptional({
+    example: false,
+    description: 'If true, do not link this request to the submitter\'s account or member profile, even if they are logged in or their email matches an existing member.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  anonymous?: boolean;
 }

@@ -25,7 +25,7 @@ export class PrayerRequestsService {
     private readonly prayerCommunicationService: PrayerCommunicationService,
     private readonly notificationService: NotificationService,
     private readonly auditLogService: AuditLogService,
-  ) {}
+  ) { }
 
   /**
    * Helper to format actor context for audit logs without triggering TS errors
@@ -34,11 +34,11 @@ export class PrayerRequestsService {
     return actorId ? { id: actorId } : {};
   }
 
- /**
-   * Eligible assignees: SUPER_ADMIN (always) or any active DepartmentMember
-   * of the Prayer department (LEADER or MEMBER). ADMIN role alone is no
-   * longer sufficient — matches PrayerAccessGuard exactly.
-   */
+  /**
+    * Eligible assignees: SUPER_ADMIN (always) or any active DepartmentMember
+    * of the Prayer department (LEADER or MEMBER). ADMIN role alone is no
+    * longer sufficient — matches PrayerAccessGuard exactly.
+    */
   async getEligibleAssignees() {
     return this.prisma.user.findMany({
       where: {
@@ -94,7 +94,41 @@ export class PrayerRequestsService {
   /**
    * Create prayer request from public website
    */
+  /**
+   * Create prayer request from public website
+   */
   async create(dto: CreatePrayerRequestDto, actorId?: string) {
+    let memberId: string | undefined;
+    let requesterId: string | undefined;
+
+    if (!dto.anonymous) {
+      if (actorId) {
+        // Logged-in submitter, not requesting anonymity — link via their
+        // account directly rather than guessing from email.
+        const member = await this.prisma.member.findUnique({
+          where: { userId: actorId },
+          select: { id: true },
+        });
+        memberId = member?.id;
+        requesterId = actorId;
+      } else if (dto.email) {
+        // Anonymous public visitor who happened to type an email matching
+        // an existing member — soft-link for continuity, same as before.
+        const existingMember = await this.prisma.member.findFirst({
+          where: { email: { equals: dto.email, mode: 'insensitive' }, deletedAt: null },
+          select: { id: true, userId: true },
+        });
+        if (existingMember) {
+          memberId = existingMember.id;
+          requesterId = existingMember.userId ?? undefined;
+        }
+      }
+    }
+    // dto.anonymous === true: memberId/requesterId both stay undefined,
+    // regardless of login state or email match. This is the actual privacy
+    // guarantee — not just omitting requesterId, since matching by email
+    // alone is just as identifying to prayer team staff.
+
     const prayerRequest = await this.prisma.prayerRequest.create({
       data: {
         firstName: dto.firstName,
@@ -110,23 +144,19 @@ export class PrayerRequestsService {
         allowFollowUp: dto.allowFollowUp ?? true,
         preferredContactMethod: dto.preferredContactMethod,
         status: PrayerRequestStatus.PENDING,
+        memberId,
+        requesterId,
       },
     });
 
-    await this.prayerCommunicationService.sendRequestReceivedEmail(
-      prayerRequest,
-    );
+    await this.prayerCommunicationService.sendRequestReceivedEmail(prayerRequest);
 
-    // Notify admins
     await this.notificationService.notifyAdmins({
       title: 'New Prayer Request',
-      message: `${prayerRequest.firstName ?? 'Someone'} ${
-        prayerRequest.lastName ?? ''
-      } submitted a prayer request.`.trim(),
+      message: `${prayerRequest.firstName ?? 'Someone'} ${prayerRequest.lastName ?? ''} submitted a prayer request.`.trim(),
       type: NotificationType.PRAYER,
     });
 
-    // Audit
     await this.auditLogService.createLog(
       this.getActorContext(actorId),
       {
@@ -139,7 +169,6 @@ export class PrayerRequestsService {
     );
 
     this.logger.log(`Prayer request created ${prayerRequest.id}`);
-
     return prayerRequest;
   }
 
@@ -445,47 +474,83 @@ export class PrayerRequestsService {
       },
     });
   }
+  /**
+   * A logged-in user's own submitted prayer requests — distinct from
+   * findMyAssigned (requests assigned TO them as a prayer-team worker).
+   * Requests they submitted anonymously are deliberately excluded, since
+   * there's nothing on the record linking it back to them to query by.
+   */
+  async findMyRequests(userId: string) {
+    const member = await this.prisma.member.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
 
+    return this.prisma.prayerRequest.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { requesterId: userId },
+          ...(member ? [{ memberId: member.id }] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        notes: { where: { isInternal: false }, orderBy: { createdAt: 'desc' } },
+      },
+    });
+  }
+  
   /**
    * Authorization check for single-item access: full managers (checked via
    * PrayerAccessGuard upstream for list/assign routes) always pass; for
    * detail/status/notes routes we additionally allow the assignee themself.
    */
   async assertCanAccess(prayerId: string, userId: string, role: string) {
-    if (role === 'SUPER_ADMIN') return;
+  // 1. Super Admins bypass all access checks
+  if (role === 'SUPER_ADMIN') return;
 
-    const prayer = await this.prisma.prayerRequest.findUnique({
-      where: { id: prayerId },
-      select: { assignedToId: true },
-    });
+  // 2. Retrieve prayer request with assigned & requester ownership IDs
+  const prayer = await this.prisma.prayerRequest.findUnique({
+    where: { id: prayerId },
+    select: { assignedToId: true, requesterId: true },
+  });
 
-    if (!prayer) throw new NotFoundException('Prayer request not found');
+  if (!prayer) {
+    throw new NotFoundException('Prayer request not found');
+  }
 
-    if (prayer.assignedToId === userId) return;
+  // 3. Direct Access Rules (Assigned Intercessor OR Requester Self-Access)
+  if (prayer.assignedToId === userId) return;
+  if (prayer.requesterId === userId) return;
 
-    const member = await this.prisma.member.findUnique({
-      where: { userId },
-      select: { id: true },
-    });
+  // 4. Department Member Access Check
+  const member = await this.prisma.member.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
 
-    const isDeptMember = member
-      ? await this.prisma.departmentMember.findFirst({
-          where: {
-            memberId: member.id,
-            // Any active Prayer dept member, not just LEADER.
-            status: 'ACTIVE',
-            deletedAt: null,
-            department: {
-              slug: { in: ['prayer', 'intercessory-prayer', 'prayer-department'], mode: 'insensitive' },
+  const isDeptMember = member
+    ? await this.prisma.departmentMember.findFirst({
+        where: {
+          memberId: member.id,
+          // Any active Prayer dept member, not just LEADER.
+          status: 'ACTIVE',
+          deletedAt: null,
+          department: {
+            slug: {
+              in: ['prayer', 'intercessory-prayer', 'prayer-department'],
+              mode: 'insensitive',
             },
           },
-        })
-      : null;
+        },
+      })
+    : null;
 
-    if (!isDeptMember) {
-      throw new BadRequestException('You do not have access to this prayer request.');
-    }
+  if (!isDeptMember) {
+    throw new BadRequestException('You do not have access to this prayer request.');
   }
+}
 
   /**
    * Dedicated status transition (matches the frontend's updatePrayerStatus).
@@ -518,5 +583,5 @@ export class PrayerRequestsService {
 
     return updated;
   }
-  
+
 }
