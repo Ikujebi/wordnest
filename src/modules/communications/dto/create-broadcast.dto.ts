@@ -11,13 +11,15 @@ import {
 import { Type } from 'class-transformer';
 
 // 🔥 Unified enums directly from the auto-generated Prisma client
-import { CommunicationType, CommunicationChannel } from '@prisma/client'; 
+import { CommunicationType, CommunicationChannel } from '@prisma/client';
 
 class RecipientFilterDto {
   @IsString()
   @IsNotEmpty()
   type!:
     | 'ALL_MEMBERS'
+    | 'ALL_SUBSCRIBERS'
+    | 'ALL_MEMBERS_AND_SUBSCRIBERS'
     | 'WORKERS'
     | 'DEPARTMENT'
     | 'MINISTRY'
@@ -76,12 +78,11 @@ export class CreateBroadcastDto {
   @IsDateString()
   scheduledAt?: Date;
 
-  /**
-   * User creating the communication
-   */
-  @IsString()
-  @IsNotEmpty()
-  createdById!: string;
+  // createdById intentionally removed — it's never client-supplied. The
+  // controller derives it from the authenticated JWT (req.user.id) and
+  // passes it to the service as a separate argument, not part of the
+  // validated body. See CommunicationsController.create /
+  // CommunicationsService.create.
 
   /**
    * Recipient targeting rules

@@ -9,9 +9,9 @@ import {
   Query,
   Req,
   ParseUUIDPipe,
-  UseGuards,UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, UseInterceptors,
+  UseGuards, UploadedFile, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator, UseInterceptors,
 } from '@nestjs/common';
-import {FileInterceptor} from '@nestjs/platform-express'
+import { FileInterceptor } from '@nestjs/platform-express'
 import { CommunicationsService } from './communications.service';
 import { CreateBroadcastDto } from './dto/create-broadcast.dto';
 import { UpdateBroadcastDto } from './dto/update-broadcast.dto';
@@ -26,13 +26,15 @@ import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 @Controller('communications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class CommunicationsController {
-  constructor(private readonly communicationsService: CommunicationsService,private readonly cloudinaryService: CloudinaryService) {}
+  constructor(private readonly communicationsService: CommunicationsService, private readonly cloudinaryService: CloudinaryService) {}
 
   @Post()
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   create(@Req() req: any, @Body() dto: CreateBroadcastDto) {
-    // createdById is set from the authenticated user, never trusted from the body
-    return this.communicationsService.create({ ...dto, createdById: req.user.id });
+    // createdById is set from the authenticated user, never trusted from the
+    // body — it's not a DTO field at all, so ValidationPipe's
+    // forbidNonWhitelisted never sees it as a client-supplied property.
+    return this.communicationsService.create(dto, req.user.id);
   }
 
   @Get()
@@ -136,7 +138,7 @@ export class CommunicationsController {
   archive(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.communicationsService.archive(id, req.user.id);
   }
-    @Post('upload-image')
+  @Post('upload-image')
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @UseInterceptors(FileInterceptor('image'))
   async uploadImage(

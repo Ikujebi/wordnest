@@ -36,9 +36,11 @@ export class CommunicationsService {
   ) {}
 
   /**
-   * Create a communication.
+   * Create a communication. `createdById` comes from the authenticated
+   * request (see CommunicationsController.create) — it is never part of
+   * CreateBroadcastDto, so it can't be rejected or spoofed via the body.
    */
-  async create(dto: CreateBroadcastDto) {
+  async create(dto: CreateBroadcastDto, createdById: string) {
     const exists = await this.prisma.communication.findFirst({
       where: {
         title: dto.title,
@@ -65,14 +67,14 @@ export class CommunicationsService {
         type: dto.type,
         status: initialStatus,
         scheduledAt: dto.scheduledAt,
-        createdById: dto.createdById,
+        createdById,
         imageUrls: dto.imageUrls ?? [],
       },
     });
 
     if (dto.recipients) {
       const resolved = await this.recipientService.resolveRecipients(
-        dto.recipients,
+        dto.recipients as any,
       );
 
       const uniqueRecipients = this.recipientService.removeDuplicates(resolved);
@@ -104,7 +106,7 @@ export class CommunicationsService {
     });
 
     await this.auditLogService.createLog(
-      { id: dto.createdById ?? undefined },
+      { id: createdById },
       {
         action: AuditAction.CREATE_COMMUNICATION,
         entity: 'Communication',
@@ -621,6 +623,6 @@ export class CommunicationsService {
     return this.statisticsService.getCommunicationStatistics(id);
   }
   async dashboardOverview() {
-  return this.statisticsService.dashboardOverview();
-}
+    return this.statisticsService.dashboardOverview();
+  }
 }
