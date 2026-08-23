@@ -33,6 +33,8 @@ import { GivingsModule } from './modules/givings/givings.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { SystemModule } from './system/system.module';
 import { InvitesModule } from './modules/invites/invites.module';
+import { WorkerModule } from './modules/worker/worker.module';
+import { WorkerPipelineModule } from './modules/worker-pipeline/worker-pipeline.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -90,6 +92,8 @@ import { InvitesModule } from './modules/invites/invites.module';
     ContactModule,
     SystemModule,
     InvitesModule,
+    WorkerModule,
+    WorkerPipelineModule,
     HealthModule,
   ],
 
