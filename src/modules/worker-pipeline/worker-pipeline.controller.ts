@@ -7,6 +7,8 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
+import { AssignMentorDto } from './dto/assign-mentor.dto';
+import { AddPipelineNoteDto } from './dto/add-pipeline-note.dto';
 
 @Controller('worker-onboarding')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -36,5 +38,22 @@ export class WorkerPipelineController {
     @Body() dto: UpdatePipelineStageDto,
   ) {
     return this.pipelineService.advancePipelineStage(id, dto, req.user.id);
+  }
+    @Patch('applications/:id/mentor')
+  async assignMentor(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
+    @Body() dto: AssignMentorDto,
+  ) {
+    return this.pipelineService.assignMentor(id, dto, req.user.id);
+  }
+
+  @Post('applications/:id/notes')
+  async addNote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: any,
+    @Body() dto: AddPipelineNoteDto,
+  ) {
+    return this.pipelineService.addNote(id, dto, req.user.id);
   }
 }

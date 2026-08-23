@@ -12,6 +12,8 @@ import { NotificationService } from '../notifications/notification.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import { PipelineQueryDto } from './dto/pipeline-query.dto';
+import { AssignMentorDto } from './dto/assign-mentor.dto';
+import { AddPipelineNoteDto } from './dto/add-pipeline-note.dto';
 
 @Injectable()
 export class WorkerPipelineService {
@@ -272,5 +274,87 @@ export class WorkerPipelineService {
     }
 
     return record;
+  }
+    /**
+   * Standalone mentor assignment — doesn't touch stage, so a mentor can be
+   * set or changed independently of progression.
+   */
+  async assignMentor(id: string, dto: AssignMentorDto, adminId: string) {
+    const record = await this.prisma.workerInTraining.findUnique({
+      where: { id, deletedAt: null },
+    });
+
+    if (!record) {
+      throw new NotFoundException('Pipeline record not found.');
+    }
+
+    const updated = await this.prisma.workerInTraining.update({
+      where: { id },
+      data: {
+        mentorId: dto.mentorId ?? null,
+        mentorWorkerId: dto.mentorWorkerId ?? null,
+      },
+    });
+
+    await this.auditLogService.createLog(
+      { id: adminId },
+      {
+        action: AuditAction.ASSIGN_WORKER_MENTOR,
+        entity: 'WorkerInTraining',
+        entityId: updated.id,
+        description: 'Mentor assignment updated for pipeline record',
+        oldValues: { mentorId: record.mentorId, mentorWorkerId: record.mentorWorkerId },
+        newValues: { mentorId: updated.mentorId, mentorWorkerId: updated.mentorWorkerId },
+      },
+    );
+
+    if (dto.mentorId) {
+      await this.notificationService.notifyMember(dto.mentorId, {
+        title: 'Mentorship Assignment',
+        message: 'You have been assigned as a mentor for a worker-in-training candidate.',
+        type: NotificationType.INFO,
+      });
+    }
+
+    return this.findOne(id);
+  }
+
+  /**
+   * Appends a timestamped remark to the pipeline record's notes log.
+   * Concatenation happens server-side (not client-side, as the old
+   * frontend hook did) so two admins adding notes around the same time
+   * can't silently overwrite each other's text.
+   */
+  async addNote(id: string, dto: AddPipelineNoteDto, adminId: string) {
+    const record = await this.prisma.workerInTraining.findUnique({
+      where: { id, deletedAt: null },
+    });
+
+    if (!record) {
+      throw new NotFoundException('Pipeline record not found.');
+    }
+
+    const timestamp = new Date().toLocaleDateString();
+    const appendedNotes = record.notes
+      ? `${record.notes}\n\n[${timestamp}]: ${dto.note}`
+      : `[${timestamp}]: ${dto.note}`;
+
+    const updated = await this.prisma.workerInTraining.update({
+      where: { id },
+      data: { notes: appendedNotes },
+    });
+
+    await this.auditLogService.createLog(
+      { id: adminId },
+      {
+        action: AuditAction.UPDATE,
+        entity: 'WorkerInTraining',
+        entityId: updated.id,
+        description: 'Note added to pipeline record',
+        newValues: { note: dto.note },
+      },
+    );
+
+    return this.findOne(id);
   }
 }
