@@ -7,6 +7,7 @@ import {
   Body,
   Patch,
   Param,
+  Delete,
   Query,
   ParseUUIDPipe,
   UseGuards,
@@ -107,7 +108,15 @@ export class DepartmentsController {
       req.user.id,
     );
   }
-
+  @Delete(':departmentId/members/:memberId')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  async removeMemberFromRoster(
+    @Param('departmentId', ParseUUIDPipe) departmentId: string,
+    @Param('memberId', ParseUUIDPipe) memberId: string,
+    @Req() req: any,
+  ) {
+    return this.departmentsService.removeMember(departmentId, memberId, req.user.id);
+  }
   /**
    * Configures custom dynamic evaluation metrics and weight percentages (100% total).
    */
@@ -152,4 +161,5 @@ export class DepartmentsController {
   async getDepartment(@Param('id', ParseUUIDPipe) id: string) {
     return this.departmentsService.findOne(id);
   }
+  
 }

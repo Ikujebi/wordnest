@@ -481,7 +481,71 @@ export class DepartmentsService {
       throw new InternalServerErrorException('Roster management update failed.');
     }
   }
+  /**
+   * Soft-removes a member from a department's roster entirely (distinct
+   * from updateMemberAssignment, which changes status but keeps the
+   * roster record). Deliberately does NOT touch the member's Worker
+   * record or isWorker flag — being taken off one department's roster
+   * doesn't mean someone stops being a worker (they may serve elsewhere,
+   * or their worker status may need to be handled separately by an
+   * admin). Only updateMemberAssignment's ACTIVE<->non-ACTIVE transitions
+   * manage worker status automatically.
+   */
+  async removeMember(
+    departmentId: string,
+    memberId: string,
+    removerId: string,
+  ): Promise<{ message: string }> {
+    const existingMember = await this.prisma.departmentMember.findUnique({
+      where: { memberId_departmentId: { memberId, departmentId } },
+      include: { department: true },
+    });
 
+    if (!existingMember || existingMember.deletedAt) {
+      throw new NotFoundException('Active roster record for this member and department combination not found.');
+    }
+
+    try {
+      const removed = await this.prisma.departmentMember.update({
+        where: { memberId_departmentId: { memberId, departmentId } },
+        data: {
+          deletedAt: new Date(),
+          leftAt: new Date(),
+          updatedById: removerId,
+        },
+      });
+
+      await this.auditLogService.createLog(
+        { id: removerId },
+        {
+          action: AuditAction.REMOVE_DEPARTMENT_MEMBER,
+          entity: 'DepartmentMember',
+          entityId: removed.id,
+          description: `Member ${memberId} removed from department ${existingMember.department.name}.`,
+          oldValues: existingMember,
+          newValues: removed,
+        },
+      );
+
+      await this.notificationService.notifyMember(memberId, {
+        title: 'Department Assignment Ended',
+        message: `You have been removed from the ${existingMember.department.name} department.`,
+        type: NotificationType.SYSTEM,
+      });
+
+      return { message: 'Member removed from department roster.' };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw new NotFoundException('Active roster record for this member and department combination not found.');
+      }
+
+      this.logger.error(
+        `Failed to remove member ${memberId} from department ${departmentId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException('Failed to remove member from department roster.');
+    }
+  }
   /**
    * Configures custom evaluation metrics for a specific department (Super-Admin only).
    * Validates that total weights equal exactly 100%.
