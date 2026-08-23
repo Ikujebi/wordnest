@@ -254,6 +254,26 @@ export class AdminService {
       growthRatePercent,
     };
   }
+    /**
+   * Most recently added members, for dashboard widgets — separate from
+   * listAllMembers, which intentionally sorts alphabetically for the
+   * member directory and shouldn't have its default ordering changed.
+   */
+  async getRecentMembers(limit = 5) {
+    return this.prisma.member.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        isWorker: true,
+        createdAt: true,
+      },
+    });
+  }
   async listPendingMemberApprovals() {
   return this.prisma.user.findMany({
     where: { role: 'MEMBER', approvalStatus: 'PENDING', deletedAt: null },
