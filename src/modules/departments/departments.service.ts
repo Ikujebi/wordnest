@@ -234,26 +234,72 @@ export class DepartmentsService {
   /**
    * Adds a physical Member profile to a specific Department group.
    */
+   /**
+   * Adds a physical Member profile to a specific Department group. When the
+   * assignment is ACTIVE, the member is automatically upserted into the
+   * operational Worker directory too — covers people who were already
+   * working in the church before this system existed and don't need to go
+   * through the WorkerInTraining pipeline (that pipeline's ACTIVE_WORKER
+   * stage does the same upsert for brand-new candidates — see
+   * WorkerPipelineService.advancePipelineStage).
+   */
   async addMember(
     departmentId: string,
     dto: AddDepartmentMemberDto,
     creatorId: string,
   ): Promise<DepartmentMember> {
     try {
-      const departmentMember = await this.prisma.departmentMember.create({
-        data: {
-          departmentId,
-          memberId: dto.memberId,
-          role: dto.role,
-          status: dto.status,
-          createdById: creatorId,
-        },
-        include: {
-          department: true,
-        },
+      const isActiveAssignment = dto.status ? dto.status === 'ACTIVE' : true;
+
+      // Check beforehand so the audit log can distinguish "promoted to
+      // worker" from "already was one" — purely for a cleaner log entry,
+      // not required for correctness.
+      const existingWorker = isActiveAssignment
+        ? await this.prisma.worker.findUnique({ where: { memberId: dto.memberId } })
+        : null;
+      const isNewWorker = isActiveAssignment && (!existingWorker || existingWorker.deletedAt !== null);
+
+      const { departmentMember, worker } = await this.prisma.$transaction(async (tx) => {
+        const departmentMember = await tx.departmentMember.create({
+          data: {
+            departmentId,
+            memberId: dto.memberId,
+            role: dto.role,
+            status: dto.status,
+            createdById: creatorId,
+          },
+          include: {
+            department: true,
+          },
+        });
+
+        let worker: Prisma.WorkerGetPayload<{}> | null = null;
+
+        if (isActiveAssignment) {
+          worker = await tx.worker.upsert({
+            where: { memberId: dto.memberId },
+            update: {
+              departmentId,
+              isActive: true,
+              deletedAt: null,
+            },
+            create: {
+              memberId: dto.memberId,
+              departmentId,
+              isActive: true,
+            },
+          });
+
+          await tx.member.update({
+            where: { id: dto.memberId },
+            data: { isWorker: true },
+          });
+        }
+
+        return { departmentMember, worker };
       });
 
-      // 1. Audit Log
+      // 1. Audit Log — roster assignment
       await this.auditLogService.createLog(
         { id: creatorId },
         {
@@ -264,6 +310,22 @@ export class DepartmentsService {
           newValues: departmentMember,
         },
       );
+
+      // 1b. Audit Log — worker directory promotion, only when it actually
+      // created a new Worker record (avoids noisy duplicate logs for
+      // members who were already workers, e.g. moving departments).
+      if (worker && isNewWorker) {
+        await this.auditLogService.createLog(
+          { id: creatorId },
+          {
+            action: AuditAction.CREATE_WORKER,
+            entity: 'Worker',
+            entityId: worker.id,
+            description: `Member ${dto.memberId} automatically registered as a worker via department assignment.`,
+            newValues: worker,
+          },
+        );
+      }
 
       // 2. Real-Time Notification -> Notify the added member directly
       await this.notificationService.notifyMember(dto.memberId, {
@@ -287,6 +349,12 @@ export class DepartmentsService {
 
   /**
    * Modifies role parameters or soft-removes a member from the operational team roster.
+   */
+   /**
+   * Modifies role parameters or soft-removes a member from the operational team roster.
+   * Symmetric with addMember: toggling status away from ACTIVE deactivates
+   * their linked Worker record (if this department is the one it's tied
+   * to); toggling back to ACTIVE reactivates it.
    */
   async updateMemberAssignment(
     departmentId: string,
@@ -312,15 +380,54 @@ export class DepartmentsService {
         throw new NotFoundException('Active roster record for this member and department combination not found.');
       }
 
-      const updatedMember = await this.prisma.departmentMember.update({
-        where: {
-          memberId_departmentId: { memberId, departmentId },
-          deletedAt: null,
-        },
-        data,
+      const statusChanging = dto.status !== undefined && dto.status !== existingMember.status;
+
+      const { updatedMember, workerStatusChanged } = await this.prisma.$transaction(async (tx) => {
+        const updatedMember = await tx.departmentMember.update({
+          where: {
+            memberId_departmentId: { memberId, departmentId },
+            deletedAt: null,
+          },
+          data,
+        });
+
+        let workerStatusChanged: 'deactivated' | 'reactivated' | null = null;
+
+        if (statusChanging) {
+          const worker = await tx.worker.findUnique({ where: { memberId } });
+
+          // Only touch the Worker record if it's the one tied to THIS
+          // department — a member who already moved to a different
+          // department's worker role shouldn't be affected here.
+          if (worker && worker.departmentId === departmentId) {
+            if (dto.status !== 'ACTIVE' && worker.isActive) {
+              await tx.worker.update({
+                where: { memberId },
+                data: { isActive: false },
+              });
+              await tx.member.update({
+                where: { id: memberId },
+                data: { isWorker: false },
+              });
+              workerStatusChanged = 'deactivated';
+            } else if (dto.status === 'ACTIVE' && !worker.isActive) {
+              await tx.worker.update({
+                where: { memberId },
+                data: { isActive: true, deletedAt: null },
+              });
+              await tx.member.update({
+                where: { id: memberId },
+                data: { isWorker: true },
+              });
+              workerStatusChanged = 'reactivated';
+            }
+          }
+        }
+
+        return { updatedMember, workerStatusChanged };
       });
 
-      // 1. Audit Log
+      // 1. Audit Log — roster assignment
       await this.auditLogService.createLog(
         { id: updaterId },
         {
@@ -332,6 +439,19 @@ export class DepartmentsService {
           newValues: updatedMember,
         },
       );
+
+      // 1b. Audit Log — worker status side-effect, only when it actually changed
+      if (workerStatusChanged) {
+        await this.auditLogService.createLog(
+          { id: updaterId },
+          {
+            action: AuditAction.UPDATE_WORKER,
+            entity: 'Worker',
+            entityId: memberId,
+            description: `Worker record ${workerStatusChanged} automatically following department status change to ${dto.status}.`,
+          },
+        );
+      }
 
       // 2. Real-Time Notification -> Alert the member if their role or status changed
       if (dto.role || dto.status) {
