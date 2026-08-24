@@ -207,4 +207,12 @@ export class BlogPostsService {
 
   return result;
 }
+async findBySlug(slug: string): Promise<BlogPost> {
+  const post = await this.prisma.blogPost.findFirst({
+    where: { slug, deletedAt: null, isPublished: true },
+    include: { author: { select: { id: true, fullName: true } } },
+  });
+  if (!post) throw new NotFoundException('Blog post not found.');
+  return post;
+}
 }

@@ -48,4 +48,8 @@ export class BlogPostsController {
 notifySubscribers(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
   return this.blogPostsService.notifySubscribers(id, req.user.id);
 }
+@Get('slug/:slug')
+findBySlug(@Param('slug') slug: string) {
+  return this.blogPostsService.findBySlug(slug);
+}
 }
