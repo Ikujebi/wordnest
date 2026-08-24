@@ -23,7 +23,7 @@ getRecentMembers(@Query('limit') limit?: string) {
   const parsedLimit = limit ? parseInt(limit, 10) : 5;
   return this.adminService.getRecentMembers(parsedLimit);
 }
-@Get('members/birthdays')
+@Get('members/upcoming-birthdays')
 getUpcomingBirthdays(@Query('limit') limit?: string) {
   const parsedLimit = limit ? parseInt(limit, 10) : 5;
   return this.adminService.getUpcomingBirthdays(parsedLimit);
