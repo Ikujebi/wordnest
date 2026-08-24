@@ -365,9 +365,7 @@ async hardDeletePendingMember(performingAdminId: string, userId: string) {
 
   return { message: 'Pending account permanently deleted.' };
 }
-/**
- * Fetches members with upcoming birthdays.
- */
+// admin.service.ts
 async getUpcomingBirthdays(limit = 5) {
   const members = await this.prisma.member.findMany({
     where: {
@@ -386,26 +384,34 @@ async getUpcomingBirthdays(limit = 5) {
   });
 
   const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  // Filter out any potential nulls and type-cast for safe Date manipulation
-  const validMembers = members.filter(
-    (m): m is typeof m & { dateOfBirth: Date } => m.dateOfBirth !== null,
-  );
+  const membersWithNextBirthday = members
+    // 1. Explicit Type Predicate narrows type from (Date | null) to Date
+    .filter((member): member is typeof member & { dateOfBirth: Date } => member.dateOfBirth !== null)
+    .map((member) => {
+      // TypeScript now safely knows member.dateOfBirth is a Date
+      const dob = new Date(member.dateOfBirth);
 
-  // Sort by next upcoming birthday anniversary
-  const sorted = validMembers.sort((a, b) => {
-    const dobA = new Date(a.dateOfBirth);
-    const dobB = new Date(b.dateOfBirth);
+      const nextBirthday = new Date(
+        today.getFullYear(),
+        dob.getMonth(),
+        dob.getDate()
+      );
 
-    const nextA = new Date(today.getFullYear(), dobA.getUTCMonth(), dobA.getUTCDate());
-    const nextB = new Date(today.getFullYear(), dobB.getUTCMonth(), dobB.getUTCDate());
+      if (nextBirthday < today) {
+        nextBirthday.setFullYear(today.getFullYear() + 1);
+      }
 
-    if (nextA < today) nextA.setFullYear(today.getFullYear() + 1);
-    if (nextB < today) nextB.setFullYear(today.getFullYear() + 1);
+      return {
+        ...member,
+        nextBirthdayTime: nextBirthday.getTime(),
+      };
+    });
 
-    return nextA.getTime() - nextB.getTime();
-  });
-
-  return sorted.slice(0, limit);
+  return membersWithNextBirthday
+    .sort((a, b) => a.nextBirthdayTime - b.nextBirthdayTime)
+    .slice(0, limit)
+    .map(({ nextBirthdayTime, ...member }) => member);
 }
 }
