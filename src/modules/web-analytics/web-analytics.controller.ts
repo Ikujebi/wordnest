@@ -16,8 +16,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 
 import { Role } from '@prisma/client';
 
-import type { TrackAnalyticsEventDto } from '../../../types/visits';
-
+import  { TrackAnalyticsEventDto } from '../../../types/visits';
 @Controller('web-analytics')
 export class WebAnalyticsController {
   constructor(
