@@ -9,10 +9,10 @@ import { CommunicationsController } from './communications.controller';
 import { CommunicationsService } from './communications.service';
 
 // 🛠️ UPDATE THESE FOUR IMPORTS TO POINT TO THE 'services' SUBFOLDER:
-import { BroadcastService } from './services/broadcast.service'; 
-import { RecipientService } from './services/recipient.service'; 
-import { StatisticsService } from './services/statistics.service'; 
-import { SchedulerService } from './services/scheduler.service'; 
+import { BroadcastService } from './services/broadcast.service';
+import { RecipientService } from './services/recipient.service';
+import { StatisticsService } from './services/statistics.service';
+import { SchedulerService } from './services/scheduler.service';
 import { CloudinaryModule } from '../../cloudinary/cloudinary.module';
 import { EmailService } from './channels/email.service';
 import { SmsService } from './channels/sms.service';
@@ -41,7 +41,7 @@ import { SmsProcessor } from './channels/sms/sms.processor';
   controllers: [CommunicationsController],
   providers: [
     CommunicationsService,
-    
+
     // These now reference the exact classes the service expects
     BroadcastService,
     RecipientService,
@@ -57,10 +57,12 @@ import { SmsProcessor } from './channels/sms/sms.processor';
   ],
   exports: [
     CommunicationsService,
+    RecipientService,   // add
+    BroadcastService,
     EmailService,
     SmsService,
     WhatsappService,
     WebPushService,
   ],
 })
-export class CommunicationsModule {}
+export class CommunicationsModule { }

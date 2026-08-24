@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger, BadRequestException  } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Prisma, BlogPost } from '@prisma/client';
 import { CreateBlogPostDto } from './dto/create-blog-post.dto';
@@ -7,6 +7,8 @@ import { BlogPostQueryDto } from './dto/blog-post-query.dto';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import slugify from 'slugify';
+import { RecipientService } from '../communications/services/recipient.service';
+import { BroadcastService } from '../communications/services/broadcast.service';
 
 @Injectable()
 export class BlogPostsService {
@@ -15,6 +17,8 @@ export class BlogPostsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
+    private readonly recipientService: RecipientService,
+  private readonly broadcastService: BroadcastService,
   ) {}
 
   async create(dto: CreateBlogPostDto, authorId: string): Promise<BlogPost> {
@@ -157,4 +161,50 @@ export class BlogPostsService {
 
     return { message: 'Blog post deleted successfully.' };
   }
+  async notifySubscribers(id: string, performingUserId: string) {
+  const post = await this.findOne(id);
+  if (!post.isPublished) {
+    throw new BadRequestException('Only published posts can be sent to subscribers.');
+  }
+
+  const recipients = await this.recipientService.resolveRecipients({ type: 'ALL_MEMBERS_AND_SUBSCRIBERS' });
+  const unique = this.recipientService.removeDuplicates(recipients);
+
+  const blogUrl = `https://www.wordtabernacle.org.ng/blog/${post.slug}`;
+  const bodyText = post.excerpt || post.content.slice(0, 300);
+  const contentHtml = `
+    <h2>${post.title}</h2>
+    <p>${bodyText}</p>
+    <p><a href="${blogUrl}">Read the full post</a></p>
+  `;
+
+  const communication = await this.prisma.communication.create({
+    data: {
+      title: `New Blog Post: ${post.title}`,
+      subject: post.title,
+      content: contentHtml,
+      type: 'BLOG_POST',
+      status: 'DRAFT',
+      channels: ['EMAIL'],
+      imageUrls: post.coverImage ? [post.coverImage] : [],
+      createdById: performingUserId,
+    },
+  });
+
+  await this.recipientService.attachRecipients(communication.id, unique);
+  const result = await this.broadcastService.send(communication.id);
+
+  await this.auditLogService.createLog(
+    { id: performingUserId },
+    {
+      action: AuditAction.SEND_COMMUNICATION,
+      entity: 'BlogPost',
+      entityId: id,
+      description: `Notified ${unique.length} recipients about blog post "${post.title}"`,
+      metadata: result,
+    },
+  );
+
+  return result;
+}
 }

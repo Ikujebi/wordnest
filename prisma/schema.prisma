@@ -990,6 +990,7 @@ enum CommunicationType {
   FOLLOW_UP
   EMERGENCY
   CUSTOM
+  BLOG_POST
 }
 
 enum CommunicationStatus {

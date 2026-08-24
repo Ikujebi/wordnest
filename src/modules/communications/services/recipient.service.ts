@@ -93,21 +93,12 @@ export class RecipientService {
    */
   private async getAllMembers(): Promise<ResolvedRecipient[]> {
     const members = await this.prisma.member.findMany({
-      where: {
-        user: {
-          isActive: true,
-          deletedAt: null,
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        phoneNumber: true,
-        firstName: true,
-        lastName: true,
-        userId: true,
-      },
-    });
+    where: {
+      receiveEmailNotifications: true, // add this line
+      user: { isActive: true, deletedAt: null },
+    },
+    select: { id: true, email: true, phoneNumber: true, firstName: true, lastName: true, userId: true },
+  });
 
     return members.map((m) => ({
       kind: 'member' as const,

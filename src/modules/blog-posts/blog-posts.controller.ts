@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
+import { BlogAccessGuard } from './guards/blog-access.guard';
 
 @Controller('blog-posts')
 export class BlogPostsController {
@@ -42,4 +43,9 @@ export class BlogPostsController {
   remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
     return this.blogPostsService.remove(id, req.user.id);
   }
+  @Post(':id/notify')
+@UseGuards(JwtAuthGuard, BlogAccessGuard)
+notifySubscribers(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+  return this.blogPostsService.notifySubscribers(id, req.user.id);
+}
 }
