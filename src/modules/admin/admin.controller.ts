@@ -18,7 +18,11 @@ export class AdminController {
   getStats() {
     return this.adminService.getDashboardStats();
   }
-
+@Get('members/recent')
+getRecentMembers(@Query('limit') limit?: string) {
+  const parsedLimit = limit ? parseInt(limit, 10) : 5;
+  return this.adminService.getRecentMembers(parsedLimit);
+}
   @Get('members')
   getAllMembers(@Query() query: MemberQueryDto) {
     return this.adminService.listAllMembers(query);
