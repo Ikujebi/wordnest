@@ -260,20 +260,21 @@ export class AdminService {
    * member directory and shouldn't have its default ordering changed.
    */
   async getRecentMembers(limit = 5) {
-    return this.prisma.member.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        isWorker: true,
-        createdAt: true,
-      },
-    });
-  }
+  return this.prisma.member.findMany({
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      isWorker: true,
+      dateOfBirth: true, // <--- Add this line
+      createdAt: true,
+    },
+  });
+}
   async listPendingMemberApprovals() {
   return this.prisma.user.findMany({
     where: { role: 'MEMBER', approvalStatus: 'PENDING', deletedAt: null },
@@ -363,5 +364,48 @@ async hardDeletePendingMember(performingAdminId: string, userId: string) {
   );
 
   return { message: 'Pending account permanently deleted.' };
+}
+/**
+ * Fetches members with upcoming birthdays.
+ */
+async getUpcomingBirthdays(limit = 5) {
+  const members = await this.prisma.member.findMany({
+    where: {
+      deletedAt: null,
+      dateOfBirth: { not: null },
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      isWorker: true,
+      dateOfBirth: true,
+      createdAt: true,
+    },
+  });
+
+  const today = new Date();
+
+  // Filter out any potential nulls and type-cast for safe Date manipulation
+  const validMembers = members.filter(
+    (m): m is typeof m & { dateOfBirth: Date } => m.dateOfBirth !== null,
+  );
+
+  // Sort by next upcoming birthday anniversary
+  const sorted = validMembers.sort((a, b) => {
+    const dobA = new Date(a.dateOfBirth);
+    const dobB = new Date(b.dateOfBirth);
+
+    const nextA = new Date(today.getFullYear(), dobA.getUTCMonth(), dobA.getUTCDate());
+    const nextB = new Date(today.getFullYear(), dobB.getUTCMonth(), dobB.getUTCDate());
+
+    if (nextA < today) nextA.setFullYear(today.getFullYear() + 1);
+    if (nextB < today) nextB.setFullYear(today.getFullYear() + 1);
+
+    return nextA.getTime() - nextB.getTime();
+  });
+
+  return sorted.slice(0, limit);
 }
 }
