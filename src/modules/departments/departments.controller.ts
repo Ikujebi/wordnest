@@ -28,7 +28,7 @@ import { Role } from '@prisma/client';
 @Controller('departments')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DepartmentsController {
-  constructor(private readonly departmentsService: DepartmentsService) {}
+  constructor(private readonly departmentsService: DepartmentsService) { }
 
   @Post()
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
@@ -50,7 +50,16 @@ export class DepartmentsController {
   async getDepartmentPerformance(@Query('period') period?: string) {
     return this.departmentsService.getPerformance(period);
   }
-
+  /**
+   * One-time backfill for members who were already active department
+   * workers before this system tracked Worker records automatically.
+   * Super Admin only — this is a bulk write operation.
+   */
+  @Post('sync-workers')
+  @Roles(Role.SUPER_ADMIN)
+  async syncWorkersFromRoster(@Req() req: any) {
+    return this.departmentsService.backfillWorkersFromRoster(req.user.id);
+  }
   /**
    * Assigns an active department member as the department leader.
    */
@@ -161,5 +170,5 @@ export class DepartmentsController {
   async getDepartment(@Param('id', ParseUUIDPipe) id: string) {
     return this.departmentsService.findOne(id);
   }
-  
+
 }

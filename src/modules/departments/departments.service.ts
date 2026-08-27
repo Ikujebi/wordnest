@@ -818,4 +818,62 @@ async getDepartmentMembers(departmentId: string) {
     },
   });
 }
+ async onModuleInit() {
+    try {
+      const result = await this.backfillWorkersFromRoster('SYSTEM_STARTUP');
+      if (result.created > 0) {
+        this.logger.log(`Startup worker sync: ${result.message}`);
+      }
+    } catch (error) {
+      // Never block boot on a sync hiccup.
+      this.logger.error(
+        'Startup worker backfill failed — app will continue booting.',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+async backfillWorkersFromRoster(performingAdminId: string) {
+  const activeMembers = await this.prisma.departmentMember.findMany({
+    where: { status: 'ACTIVE', deletedAt: null },
+    include: { member: { include: { worker: true } } },
+  });
+
+  const toBackfill = activeMembers.filter(
+    (dm) => !dm.member.worker || dm.member.worker.deletedAt !== null,
+  );
+
+  if (toBackfill.length === 0) {
+    return { message: 'No members needed backfilling.', created: 0 };
+  }
+
+  const created = await this.prisma.$transaction(async (tx) => {
+    return Promise.all(
+      toBackfill.map(async (dm) => {
+        const worker = await tx.worker.upsert({
+          where: { memberId: dm.memberId },
+          update: { departmentId: dm.departmentId, isActive: true, deletedAt: null },
+          create: { memberId: dm.memberId, departmentId: dm.departmentId, isActive: true },
+        });
+        await tx.member.update({
+          where: { id: dm.memberId },
+          data: { isWorker: true },
+        });
+        return worker;
+      }),
+    );
+  });
+
+  await this.auditLogService.createLog(
+  performingAdminId ? { id: performingAdminId } : {},
+  {
+    action: AuditAction.CREATE_WORKER,
+    entity: 'Worker',
+    entityId: 'STARTUP_SYNC',
+    description: `Backfilled ${created.length} Worker record(s) from existing active department rosters.`,
+    metadata: { count: created.length, memberIds: toBackfill.map((dm) => dm.memberId) },
+  },
+);
+
+  return { message: `Backfilled ${created.length} worker record(s).`, created: created.length };
+}
 }
