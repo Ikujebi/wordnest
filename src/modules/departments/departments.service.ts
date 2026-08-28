@@ -6,6 +6,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Department, DepartmentMember, DepartmentRole, Prisma, NotificationType } from '@prisma/client';
@@ -22,7 +23,7 @@ import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import slugify from 'slugify';
 
 @Injectable()
-export class DepartmentsService {
+export class DepartmentsService implements OnModuleInit {
   private readonly logger = new Logger(DepartmentsService.name);
 
   constructor(
@@ -48,7 +49,6 @@ export class DepartmentsService {
         },
       });
 
-      // 1. Audit Log
       await this.auditLogService.createLog(
         { id: creatorId },
         {
@@ -60,14 +60,12 @@ export class DepartmentsService {
         },
       );
 
-      // 2. Real-Time Notification -> Super Admins
       await this.notificationService.notifySuperAdmins({
         title: 'New Department Created',
         message: `Department "${department.name}" has been created.`,
         type: NotificationType.SYSTEM,
       });
 
-      // 3. Optional: Notify assigned leader if designated on creation
       if (dto.leaderId) {
         await this.notificationService.notifyMember(dto.leaderId, {
           title: 'Department Leadership Assignment',
@@ -85,9 +83,7 @@ export class DepartmentsService {
       throw new InternalServerErrorException('An unexpected database error occurred.');
     }
   }
-/**
-   * Lists all active departments.
-   */
+
   async findAll(): Promise<Department[]> {
     return this.prisma.department.findMany({
       where: { deletedAt: null },
@@ -98,9 +94,6 @@ export class DepartmentsService {
     });
   }
 
-  /**
-   * Retrieves a single department by ID, with leader and member count.
-   */
   async findOne(id: string): Promise<Department> {
     const department = await this.prisma.department.findUnique({
       where: { id, deletedAt: null },
@@ -116,9 +109,7 @@ export class DepartmentsService {
 
     return department;
   }
-  /**
-   * Assigns an existing active department member as the department leader.
-   */
+
   async assignLeader(
     departmentId: string,
     dto: AssignDepartmentLeaderDto,
@@ -126,7 +117,6 @@ export class DepartmentsService {
   ): Promise<Department> {
     const { leaderId } = dto;
 
-    // 1. Verify department exists and is active
     const department = await this.prisma.department.findUnique({
       where: { id: departmentId, deletedAt: null },
       include: { leader: true },
@@ -136,7 +126,6 @@ export class DepartmentsService {
       throw new NotFoundException('Department not found.');
     }
 
-    // 2. Ensure the candidate member exists and belongs to this department
     const candidateMember = await this.prisma.departmentMember.findUnique({
       where: {
         memberId_departmentId: {
@@ -156,9 +145,7 @@ export class DepartmentsService {
     }
 
     try {
-      // 3. Execute updates in a transaction: update Department leaderId and update member roles
       const updatedDepartment = await this.prisma.$transaction(async (tx) => {
-        // Demote previous leader's role in DepartmentMember if applicable
         if (department.leaderId && department.leaderId !== leaderId) {
           await tx.departmentMember.updateMany({
             where: {
@@ -173,7 +160,6 @@ export class DepartmentsService {
           });
         }
 
-        // Elevate new leader's department role to LEADER
         await tx.departmentMember.update({
           where: {
             memberId_departmentId: {
@@ -187,7 +173,6 @@ export class DepartmentsService {
           },
         });
 
-        // Set leaderId on Department record
         return tx.department.update({
           where: { id: departmentId },
           data: {
@@ -201,7 +186,6 @@ export class DepartmentsService {
         });
       });
 
-      // 4. Audit Log
       await this.auditLogService.createLog(
         { id: updaterId },
         {
@@ -214,7 +198,6 @@ export class DepartmentsService {
         },
       );
 
-      // 5. Real-Time Notification -> Notify new leader
       await this.notificationService.notifyMember(leaderId, {
         title: 'Department Leadership Assignment',
         message: `You have been assigned as the Department Leader for ${department.name}.`,
@@ -231,18 +214,6 @@ export class DepartmentsService {
     }
   }
 
-  /**
-   * Adds a physical Member profile to a specific Department group.
-   */
-   /**
-   * Adds a physical Member profile to a specific Department group. When the
-   * assignment is ACTIVE, the member is automatically upserted into the
-   * operational Worker directory too — covers people who were already
-   * working in the church before this system existed and don't need to go
-   * through the WorkerInTraining pipeline (that pipeline's ACTIVE_WORKER
-   * stage does the same upsert for brand-new candidates — see
-   * WorkerPipelineService.advancePipelineStage).
-   */
   async addMember(
     departmentId: string,
     dto: AddDepartmentMemberDto,
@@ -251,9 +222,6 @@ export class DepartmentsService {
     try {
       const isActiveAssignment = dto.status ? dto.status === 'ACTIVE' : true;
 
-      // Check beforehand so the audit log can distinguish "promoted to
-      // worker" from "already was one" — purely for a cleaner log entry,
-      // not required for correctness.
       const existingWorker = isActiveAssignment
         ? await this.prisma.worker.findUnique({ where: { memberId: dto.memberId } })
         : null;
@@ -299,7 +267,6 @@ export class DepartmentsService {
         return { departmentMember, worker };
       });
 
-      // 1. Audit Log — roster assignment
       await this.auditLogService.createLog(
         { id: creatorId },
         {
@@ -311,9 +278,6 @@ export class DepartmentsService {
         },
       );
 
-      // 1b. Audit Log — worker directory promotion, only when it actually
-      // created a new Worker record (avoids noisy duplicate logs for
-      // members who were already workers, e.g. moving departments).
       if (worker && isNewWorker) {
         await this.auditLogService.createLog(
           { id: creatorId },
@@ -327,7 +291,6 @@ export class DepartmentsService {
         );
       }
 
-      // 2. Real-Time Notification -> Notify the added member directly
       await this.notificationService.notifyMember(dto.memberId, {
         title: 'Department Assignment',
         message: `You have been added to the ${departmentMember.department.name} department as ${dto.role}.`,
@@ -347,15 +310,6 @@ export class DepartmentsService {
     }
   }
 
-  /**
-   * Modifies role parameters or soft-removes a member from the operational team roster.
-   */
-   /**
-   * Modifies role parameters or soft-removes a member from the operational team roster.
-   * Symmetric with addMember: toggling status away from ACTIVE deactivates
-   * their linked Worker record (if this department is the one it's tied
-   * to); toggling back to ACTIVE reactivates it.
-   */
   async updateMemberAssignment(
     departmentId: string,
     memberId: string,
@@ -370,7 +324,6 @@ export class DepartmentsService {
     };
 
     try {
-      // Fetch current state for Audit Log comparisons
       const existingMember = await this.prisma.departmentMember.findUnique({
         where: { memberId_departmentId: { memberId, departmentId } },
         include: { department: true },
@@ -396,9 +349,6 @@ export class DepartmentsService {
         if (statusChanging) {
           const worker = await tx.worker.findUnique({ where: { memberId } });
 
-          // Only touch the Worker record if it's the one tied to THIS
-          // department — a member who already moved to a different
-          // department's worker role shouldn't be affected here.
           if (worker && worker.departmentId === departmentId) {
             if (dto.status !== 'ACTIVE' && worker.isActive) {
               await tx.worker.update({
@@ -427,7 +377,6 @@ export class DepartmentsService {
         return { updatedMember, workerStatusChanged };
       });
 
-      // 1. Audit Log — roster assignment
       await this.auditLogService.createLog(
         { id: updaterId },
         {
@@ -440,7 +389,6 @@ export class DepartmentsService {
         },
       );
 
-      // 1b. Audit Log — worker status side-effect, only when it actually changed
       if (workerStatusChanged) {
         await this.auditLogService.createLog(
           { id: updaterId },
@@ -453,7 +401,6 @@ export class DepartmentsService {
         );
       }
 
-      // 2. Real-Time Notification -> Alert the member if their role or status changed
       if (dto.role || dto.status) {
         const changes: string[] = [];
         if (dto.role) changes.push(`role changed to ${dto.role}`);
@@ -481,16 +428,7 @@ export class DepartmentsService {
       throw new InternalServerErrorException('Roster management update failed.');
     }
   }
-  /**
-   * Soft-removes a member from a department's roster entirely (distinct
-   * from updateMemberAssignment, which changes status but keeps the
-   * roster record). Deliberately does NOT touch the member's Worker
-   * record or isWorker flag — being taken off one department's roster
-   * doesn't mean someone stops being a worker (they may serve elsewhere,
-   * or their worker status may need to be handled separately by an
-   * admin). Only updateMemberAssignment's ACTIVE<->non-ACTIVE transitions
-   * manage worker status automatically.
-   */
+
   async removeMember(
     departmentId: string,
     memberId: string,
@@ -546,10 +484,7 @@ export class DepartmentsService {
       throw new InternalServerErrorException('Failed to remove member from department roster.');
     }
   }
-  /**
-   * Configures custom evaluation metrics for a specific department (Super-Admin only).
-   * Validates that total weights equal exactly 100%.
-   */
+
   async setDepartmentMetrics(
     departmentId: string,
     metrics: CreateDepartmentMetricDto[],
@@ -609,9 +544,6 @@ export class DepartmentsService {
     }
   }
 
-  /**
-   * Logs or updates achieved metric performance entries for a department for a specified evaluation period.
-   */
   async recordMetricEntries(
     departmentId: string,
     entries: RecordMetricEntryDto[],
@@ -664,10 +596,6 @@ export class DepartmentsService {
     }
   }
 
-  /**
-   * Calculates performance percentage across active departments.
-   * Fallbacks dynamically to custom metrics if defined, or uses the standard formula (70% Workers + 30% Trainees).
-   */
   async getPerformance(period?: string): Promise<DepartmentPerformanceDto[]> {
     const activePeriod = period || '2026-Q3';
 
@@ -743,7 +671,6 @@ export class DepartmentsService {
 
       let completionRate = 0;
 
-      // Check if custom Super-Admin metrics are defined
       if (department.metrics && department.metrics.length > 0) {
         let dynamicScore = 0;
 
@@ -756,7 +683,6 @@ export class DepartmentsService {
 
         completionRate = Math.round(dynamicScore);
       } else {
-        // Fallback: Default Operational Formula (70% Workers + 30% Trainees)
         const workerScore =
           activeMembers === 0
             ? 0
@@ -785,95 +711,147 @@ export class DepartmentsService {
       };
     });
   }
-  /**
- * Lists active roster members of a department (for leader-assignment dropdowns, etc).
- */
-async getDepartmentMembers(departmentId: string) {
-  const department = await this.prisma.department.findUnique({
-    where: { id: departmentId, deletedAt: null },
-  });
 
-  if (!department) {
-    throw new NotFoundException('Department not found.');
-  }
+  async getDepartmentMembers(departmentId: string) {
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId, deletedAt: null },
+    });
 
-  return this.prisma.departmentMember.findMany({
-    where: {
-      departmentId,
-      deletedAt: null,
-      status: 'ACTIVE',
-    },
-    include: {
-      member: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
+    if (!department) {
+      throw new NotFoundException('Department not found.');
+    }
+
+    return this.prisma.departmentMember.findMany({
+      where: {
+        departmentId,
+        deletedAt: null,
+        status: 'ACTIVE',
+      },
+      include: {
+        member: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
         },
       },
-    },
-    orderBy: {
-      member: { lastName: 'asc' },
-    },
-  });
-}
- async onModuleInit() {
+      orderBy: {
+        member: { lastName: 'asc' },
+      },
+    });
+  }
+
+  /**
+   * Runs once at backend boot. Backfills any DepartmentMember rows that
+   * predate the auto-worker-upsert logic already inline in addMember /
+   * updateMemberAssignment (those stay unchanged — new roster changes are
+   * already self-syncing). Never blocks app boot on failure.
+   */
+  async onModuleInit() {
     try {
-      const result = await this.backfillWorkersFromRoster('SYSTEM_STARTUP');
+      const result = await this.backfillWorkersFromRoster();
       if (result.created > 0) {
         this.logger.log(`Startup worker sync: ${result.message}`);
       }
     } catch (error) {
-      // Never block boot on a sync hiccup.
       this.logger.error(
         'Startup worker backfill failed — app will continue booting.',
         error instanceof Error ? error.stack : String(error),
       );
     }
   }
-async backfillWorkersFromRoster(performingAdminId: string) {
-  const activeMembers = await this.prisma.departmentMember.findMany({
-    where: { status: 'ACTIVE', deletedAt: null },
-    include: { member: { include: { worker: true } } },
-  });
 
-  const toBackfill = activeMembers.filter(
-    (dm) => !dm.member.worker || dm.member.worker.deletedAt !== null,
-  );
+  /**
+   * Backfills Worker records for any ACTIVE DepartmentMember missing one.
+   * performingAdminId is optional — omitted when called automatically from
+   * onModuleInit (no real user triggered it), provided when called from the
+   * manual controller route by an authenticated Super Admin.
+   */
+  async backfillWorkersFromRoster(performingAdminId?: string) {
+    const activeMembers = await this.prisma.departmentMember.findMany({
+      where: { status: 'ACTIVE', deletedAt: null },
+      include: { member: { include: { worker: true } } },
+    });
 
-  if (toBackfill.length === 0) {
-    return { message: 'No members needed backfilling.', created: 0 };
+    const toBackfill = activeMembers.filter(
+      (dm) => !dm.member.worker || dm.member.worker.deletedAt !== null,
+    );
+
+    if (toBackfill.length === 0) {
+      return { message: 'No members needed backfilling.', created: 0 };
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      return Promise.all(
+        toBackfill.map(async (dm) => {
+          const worker = await tx.worker.upsert({
+            where: { memberId: dm.memberId },
+            update: { departmentId: dm.departmentId, isActive: true, deletedAt: null },
+            create: { memberId: dm.memberId, departmentId: dm.departmentId, isActive: true },
+          });
+          await tx.member.update({
+            where: { id: dm.memberId },
+            data: { isWorker: true },
+          });
+          return worker;
+        }),
+      );
+    });
+
+    await this.auditLogService.createLog(
+      performingAdminId ? { id: performingAdminId } : {},
+      {
+        action: AuditAction.CREATE_WORKER,
+        entity: 'Worker',
+        entityId: 'STARTUP_SYNC',
+        description: `Backfilled ${created.length} Worker record(s) from existing active department rosters.`,
+        metadata: { count: created.length, memberIds: toBackfill.map((dm) => dm.memberId) },
+      },
+    );
+
+    return { message: `Backfilled ${created.length} worker record(s).`, created: created.length };
   }
 
-  const created = await this.prisma.$transaction(async (tx) => {
-    return Promise.all(
-      toBackfill.map(async (dm) => {
-        const worker = await tx.worker.upsert({
-          where: { memberId: dm.memberId },
-          update: { departmentId: dm.departmentId, isActive: true, deletedAt: null },
-          create: { memberId: dm.memberId, departmentId: dm.departmentId, isActive: true },
-        });
-        await tx.member.update({
-          where: { id: dm.memberId },
-          data: { isWorker: true },
-        });
-        return worker;
-      }),
-    );
-  });
+  /**
+   * Read-only: the departments the currently authenticated MEMBER actually
+   * belongs to, with their own role in each and basic leader info. Not the
+   * admin roster view — no management data, no other members' details.
+   */
+  async findMyDepartments(userId: string) {
+    const member = await this.prisma.member.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
 
-  await this.auditLogService.createLog(
-  performingAdminId ? { id: performingAdminId } : {},
-  {
-    action: AuditAction.CREATE_WORKER,
-    entity: 'Worker',
-    entityId: 'STARTUP_SYNC',
-    description: `Backfilled ${created.length} Worker record(s) from existing active department rosters.`,
-    metadata: { count: created.length, memberIds: toBackfill.map((dm) => dm.memberId) },
-  },
-);
+    if (!member) return [];
 
-  return { message: `Backfilled ${created.length} worker record(s).`, created: created.length };
-}
+    const memberships = await this.prisma.departmentMember.findMany({
+      where: { memberId: member.id, status: 'ACTIVE', deletedAt: null },
+      include: {
+        department: {
+          include: {
+            leader: { select: { firstName: true, lastName: true, email: true } },
+            _count: { select: { members: true } },
+          },
+        },
+      },
+      orderBy: { department: { name: 'asc' } },
+    });
+
+    return memberships.map((m) => ({
+      id: m.department.id,
+      name: m.department.name,
+      slug: m.department.slug,
+      description: m.department.description,
+      myRole: m.role,
+      joinedAt: m.joinedAt,
+      leaderName: m.department.leader
+        ? `${m.department.leader.firstName} ${m.department.leader.lastName}`
+        : null,
+      leaderEmail: m.department.leader?.email ?? null,
+      memberCount: m.department._count.members,
+    }));
+  }
 }

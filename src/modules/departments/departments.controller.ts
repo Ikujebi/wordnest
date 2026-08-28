@@ -60,6 +60,16 @@ export class DepartmentsController {
   async syncWorkersFromRoster(@Req() req: any) {
     return this.departmentsService.backfillWorkersFromRoster(req.user.id);
   }
+    /**
+   * A member's own department memberships — read-only, scoped to
+   * themselves only. Distinct from getDepartments (admin/super-admin,
+   * every department system-wide).
+   */
+  @Get('my')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MEMBER)
+  async getMyDepartments(@Req() req: any) {
+    return this.departmentsService.findMyDepartments(req.user.id);
+  }
   /**
    * Assigns an active department member as the department leader.
    */
