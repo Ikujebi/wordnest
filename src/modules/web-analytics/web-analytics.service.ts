@@ -612,4 +612,32 @@ export class WebAnalyticsService {
       );
     }
   }
+  /**
+ * Most-visited pages by page_view count over the period.
+ */
+async getTopPages(days = 30, limit = 10): Promise<{ path: string; views: number }[]> {
+  const normalizedDays = Math.min(Math.max(Math.floor(Number(days) || 30), 1), 365);
+  const normalizedLimit = Math.min(Math.max(Math.floor(Number(limit) || 10), 1), 50);
+
+  const now = new Date();
+  const startAt = new Date();
+  startAt.setDate(startAt.getDate() - normalizedDays);
+
+  const grouped = await this.prisma.webAnalyticsEvent.groupBy({
+    by: ['path'],
+    where: {
+      event: 'page_view',
+      createdAt: { gte: startAt, lte: now },
+      path: { not: null },
+    },
+    _count: { path: true },
+    orderBy: { _count: { path: 'desc' } },
+    take: normalizedLimit,
+  });
+
+  return grouped.map((g) => ({
+    path: g.path ?? '(unknown)',
+    views: g._count.path,
+  }));
+}
 }
