@@ -58,7 +58,7 @@ export class UsersController {
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
-  ) {}
+  ) { }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -106,7 +106,19 @@ export class UsersController {
       days ? Number(days) : undefined,
     );
   }
-
+  @Get('birthdays/all')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @ApiOperation({ summary: 'Full birthday directory, filterable by month and searchable by name' })
+  async getAllBirthdays(
+    @Query('month') month?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.usersService.getAllBirthdays({
+      month: month ? Number(month) : undefined,
+      search,
+    });
+  }
   @Get('unverified')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)

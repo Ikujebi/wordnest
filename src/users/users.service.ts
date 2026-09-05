@@ -78,7 +78,7 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto): Promise<SanitizedUser> {
-    const { password, fullName, email, phoneNumber, ...data } = dto;
+    const { password, fullName, email, phoneNumber, dateOfBirth, ...data } = dto;
     const normalizedEmail = email.trim().toLowerCase();
     const passwordHash = await bcrypt.hash(password, 10);
 
@@ -101,6 +101,7 @@ export class UsersService {
                 lastName,
                 email: normalizedEmail,
                 phoneNumber: phoneNumber?.trim() ?? null,
+                dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
               },
             },
           },
@@ -144,6 +145,11 @@ export class UsersService {
         if (updatedUser.member) {
           const memberData: Prisma.MemberUpdateInput = {};
           if (dto.email) memberData.email = dto.email.trim().toLowerCase();
+          
+          if (dto.dateOfBirth) {
+            memberData.dateOfBirth = new Date(dto.dateOfBirth);
+          }
+
           if (dto.fullName) {
             const nameParts = dto.fullName.trim().split(' ');
             memberData.firstName = nameParts[0];
@@ -315,21 +321,66 @@ export class UsersService {
           m.id, 
           m."firstName", 
           m."lastName", 
-          m."dob", 
+          m."dateOfBirth", 
           u."profilePictureUrl"
         FROM "Member" m
         LEFT JOIN "User" u ON m."userId" = u.id
         WHERE m."deletedAt" IS NULL
-          AND m."dob" IS NOT NULL
+          AND m."dateOfBirth" IS NOT NULL
           AND (
-            (EXTRACT(DOY FROM m."dob") - EXTRACT(DOY FROM CURRENT_DATE) + 365) % 365
+            (EXTRACT(DOY FROM m."dateOfBirth") - EXTRACT(DOY FROM CURRENT_DATE) + 365) % 365
           ) <= ${daysAhead}
         ORDER BY 
-          ((EXTRACT(DOY FROM m."dob") - EXTRACT(DOY FROM CURRENT_DATE) + 365) % 365) ASC;
+          ((EXTRACT(DOY FROM m."dateOfBirth") - EXTRACT(DOY FROM CURRENT_DATE) + 365) % 365) ASC;
       `;
     } catch (error) {
       this.logger.error(error);
       throw new InternalServerErrorException('Failed to fetch upcoming birthdays.');
+    }
+  }
+
+  /**
+   * Full birthday directory — every member with a recorded date of birth,
+   * optionally filtered to a calendar month and/or searched by name.
+   */
+  async getAllBirthdays(query: { month?: number; search?: string }) {
+    const { month, search } = query;
+
+    const conditions = [
+      Prisma.sql`m."deletedAt" IS NULL`,
+      Prisma.sql`m."dateOfBirth" IS NOT NULL`,
+    ];
+
+    if (month) {
+      conditions.push(Prisma.sql`EXTRACT(MONTH FROM m."dateOfBirth") = ${month}`);
+    }
+
+    if (search) {
+      conditions.push(
+        Prisma.sql`(m."firstName" ILIKE ${`%${search}%`} OR m."lastName" ILIKE ${`%${search}%`})`,
+      );
+    }
+
+    const whereClause = Prisma.join(conditions, ' AND ');
+
+    try {
+      return await this.prisma.$queryRaw`
+        SELECT
+          m.id,
+          m."firstName",
+          m."lastName",
+          m."dateOfBirth",
+          u."profilePictureUrl"
+        FROM "Member" m
+        LEFT JOIN "User" u ON m."userId" = u.id
+        WHERE ${whereClause}
+        ORDER BY
+          EXTRACT(MONTH FROM m."dateOfBirth") ASC,
+          EXTRACT(DAY FROM m."dateOfBirth") ASC;
+      `;
+    } catch (error) {
+      this.logger.error(error);
+      throw new InternalServerErrorException('Failed to fetch birthdays.');
     }
   }
 }
