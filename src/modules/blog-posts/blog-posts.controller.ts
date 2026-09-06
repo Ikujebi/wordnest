@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, ParseUUIDPipe, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, ParseUUIDPipe, UseGuards, Req, UseInterceptors, UploadedFile} from '@nestjs/common';
 import { BlogPostsService } from './blog-posts.service';
 import { CreateBlogPostDto } from './dto/create-blog-post.dto';
 import { UpdateBlogPostDto } from './dto/update-blog-post.dto';
@@ -8,6 +8,8 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { BlogAccessGuard } from './guards/blog-access.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
+
 
 @Controller('blog-posts')
 export class BlogPostsController {
@@ -51,5 +53,12 @@ notifySubscribers(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
 @Get('slug/:slug')
 findBySlug(@Param('slug') slug: string) {
   return this.blogPostsService.findBySlug(slug);
+}
+@Post('upload-cover')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN)
+@UseInterceptors(FileInterceptor('file'))
+async uploadCoverImage(@UploadedFile() file: Express.Multer.File) {
+  return this.blogPostsService.uploadCoverImage(file);
 }
 }

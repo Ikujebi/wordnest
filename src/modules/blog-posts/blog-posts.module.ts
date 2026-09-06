@@ -4,9 +4,11 @@ import { BlogPostsService } from './blog-posts.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CommunicationsModule } from '../communications/communications.module';
+import { CloudinaryModule } from '../../cloudinary/cloudinary.module';
+
 
 @Module({
-  imports: [PrismaModule, AuditLogModule, CommunicationsModule],
+  imports: [PrismaModule, AuditLogModule, CommunicationsModule, CloudinaryModule],
   controllers: [BlogPostsController],
   providers: [BlogPostsService],
   exports: [BlogPostsService],

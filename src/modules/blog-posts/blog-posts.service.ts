@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger, BadRequestException  } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, InternalServerErrorException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { Prisma, BlogPost } from '@prisma/client';
 import { CreateBlogPostDto } from './dto/create-blog-post.dto';
@@ -9,6 +9,7 @@ import { AuditAction } from '../audit-log/enums/audit-action.enum';
 import slugify from 'slugify';
 import { RecipientService } from '../communications/services/recipient.service';
 import { BroadcastService } from '../communications/services/broadcast.service';
+import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 
 @Injectable()
 export class BlogPostsService {
@@ -18,8 +19,10 @@ export class BlogPostsService {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly recipientService: RecipientService,
-  private readonly broadcastService: BroadcastService,
-  ) {}
+    private readonly broadcastService: BroadcastService,
+      private readonly cloudinaryService: CloudinaryService,
+
+  ) { }
 
   async create(dto: CreateBlogPostDto, authorId: string): Promise<BlogPost> {
     const slug = slugify(dto.title, { lower: true, strict: true });
@@ -70,11 +73,11 @@ export class BlogPostsService {
       ...(query.isPublished !== undefined ? { isPublished: query.isPublished === 'true' } : {}),
       ...(query.search
         ? {
-            OR: [
-              { title: { contains: query.search, mode: 'insensitive' } },
-              { excerpt: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
+          OR: [
+            { title: { contains: query.search, mode: 'insensitive' } },
+            { excerpt: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
         : {}),
     };
 
@@ -162,57 +165,77 @@ export class BlogPostsService {
     return { message: 'Blog post deleted successfully.' };
   }
   async notifySubscribers(id: string, performingUserId: string) {
-  const post = await this.findOne(id);
-  if (!post.isPublished) {
-    throw new BadRequestException('Only published posts can be sent to subscribers.');
-  }
+    const post = await this.findOne(id);
+    if (!post.isPublished) {
+      throw new BadRequestException('Only published posts can be sent to subscribers.');
+    }
 
-  const recipients = await this.recipientService.resolveRecipients({ type: 'ALL_MEMBERS_AND_SUBSCRIBERS' });
-  const unique = this.recipientService.removeDuplicates(recipients);
+    const recipients = await this.recipientService.resolveRecipients({ type: 'ALL_MEMBERS_AND_SUBSCRIBERS' });
+    const unique = this.recipientService.removeDuplicates(recipients);
 
-  const blogUrl = `https://www.wordtabernacle.org.ng/blog/${post.slug}`;
-  const bodyText = post.excerpt || post.content.slice(0, 300);
-  const contentHtml = `
+    const blogUrl = `https://www.wordtabernacle.org.ng/blog/${post.slug}`;
+    const bodyText = post.excerpt || post.content.slice(0, 300);
+
+    // Previously the cover image was stored in imageUrls on the Communication
+    // record but never actually embedded in the email HTML — subscribers got
+    // a plain text/link email with no picture. Now embedded directly.
+    const coverImageHtml = post.coverImage
+      ? `<img src="${post.coverImage}" alt="${post.title}" style="width:100%;max-width:560px;height:auto;border-radius:12px;margin-bottom:16px;display:block;" />`
+      : '';
+
+    const contentHtml = `
+    ${coverImageHtml}
     <h2>${post.title}</h2>
     <p>${bodyText}</p>
     <p><a href="${blogUrl}">Read the full post</a></p>
   `;
 
-  const communication = await this.prisma.communication.create({
-    data: {
-      title: `New Blog Post: ${post.title}`,
-      subject: post.title,
-      content: contentHtml,
-      type: 'BLOG_POST',
-      status: 'DRAFT',
-      channels: ['EMAIL'],
-      imageUrls: post.coverImage ? [post.coverImage] : [],
-      createdById: performingUserId,
-    },
+    const communication = await this.prisma.communication.create({
+      data: {
+        title: `New Blog Post: ${post.title}`,
+        subject: post.title,
+        content: contentHtml,
+        type: 'BLOG_POST',
+        status: 'DRAFT',
+        channels: ['EMAIL'],
+        imageUrls: post.coverImage ? [post.coverImage] : [],
+        createdById: performingUserId,
+      },
+    });
+
+    await this.recipientService.attachRecipients(communication.id, unique);
+    const result = await this.broadcastService.send(communication.id);
+
+    await this.auditLogService.createLog(
+      { id: performingUserId },
+      {
+        action: AuditAction.SEND_COMMUNICATION,
+        entity: 'BlogPost',
+        entityId: id,
+        description: `Notified ${unique.length} recipients about blog post "${post.title}"`,
+        metadata: result,
+      },
+    );
+
+    return result;
+  }
+  async findBySlug(slug: string): Promise<BlogPost> {
+    const post = await this.prisma.blogPost.findFirst({
+      where: { slug, deletedAt: null, isPublished: true },
+      include: { author: { select: { id: true, fullName: true } } },
+    });
+    if (!post) throw new NotFoundException('Blog post not found.');
+    return post;
+  }
+  async uploadCoverImage(file: Express.Multer.File) {
+  if (!file) {
+    throw new BadRequestException('No file provided.');
+  }
+
+  const uploaded = await this.cloudinaryService.uploadFile(file, {
+    folder: 'blog-covers',
   });
 
-  await this.recipientService.attachRecipients(communication.id, unique);
-  const result = await this.broadcastService.send(communication.id);
-
-  await this.auditLogService.createLog(
-    { id: performingUserId },
-    {
-      action: AuditAction.SEND_COMMUNICATION,
-      entity: 'BlogPost',
-      entityId: id,
-      description: `Notified ${unique.length} recipients about blog post "${post.title}"`,
-      metadata: result,
-    },
-  );
-
-  return result;
-}
-async findBySlug(slug: string): Promise<BlogPost> {
-  const post = await this.prisma.blogPost.findFirst({
-    where: { slug, deletedAt: null, isPublished: true },
-    include: { author: { select: { id: true, fullName: true } } },
-  });
-  if (!post) throw new NotFoundException('Blog post not found.');
-  return post;
+  return { url: uploaded.secure_url, publicId: uploaded.public_id };
 }
 }
