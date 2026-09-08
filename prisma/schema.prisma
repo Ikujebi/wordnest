@@ -170,7 +170,9 @@ model Member {
   subscribers             Subscriber[]
   prayerRequests          PrayerRequest[]
   rsvps                   EventRsvp[]
-
+  leadershipBadge LeadershipLevel? 
+  leadershipAttendance LeadershipAttendance[]
+  leadershipGrades     LeadershipGrade[]
   @@index([lastName])
   @@index([email])
   @@index([phoneNumber])
@@ -350,7 +352,7 @@ model LeadershipClass {
   deletedAt     DateTime?       @db.Timestamptz(6)
   createdAt     DateTime        @default(now()) @db.Timestamptz(6)
   updatedAt     DateTime        @default(now()) @updatedAt @db.Timestamptz(6)
-
+  assignments LeadershipAssignment[]
   facilitator Member?                @relation(fields: [facilitatorId], references: [id], onDelete: SetNull)
   enrollments LeadershipEnrollment[]
   sessions    LeadershipSession[]
@@ -367,7 +369,7 @@ model LeadershipSession {
   location    String?
   meetingLink String?
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
-
+  attendance LeadershipAttendance[]
   class LeadershipClass @relation(fields: [classId], references: [id], onDelete: Cascade)
 
   @@index([scheduledAt])
@@ -389,6 +391,48 @@ model LeadershipEnrollment {
   @@unique([classId, memberId])
   @@index([memberId])
   @@index([classId])
+}
+model LeadershipAttendance {
+  id        String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  sessionId String
+  memberId  String
+  status    AttendanceStatus @default(PRESENT)
+  createdAt DateTime         @default(now()) @db.Timestamptz(6)
+
+  session LeadershipSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  member  Member            @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, memberId])
+  @@index([sessionId])
+  @@index([memberId])
+}
+
+model LeadershipAssignment {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  classId   String
+  title     String
+  maxScore  Float    @default(100)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  class  LeadershipClass  @relation(fields: [classId], references: [id], onDelete: Cascade)
+  grades LeadershipGrade[]
+
+  @@index([classId])
+}
+
+model LeadershipGrade {
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  assignmentId String
+  memberId     String
+  score        Float
+  gradedAt     DateTime @default(now()) @db.Timestamptz(6)
+  gradedById   String?
+
+  assignment LeadershipAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  member     Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, memberId])
+  @@index([memberId])
 }
 
 model WorkerInTraining {
@@ -932,8 +976,11 @@ enum LeadershipLevel {
 
 enum EnrollmentStatus {
   IN_PROGRESS
-  COMPLETED
-  DROPPED
+  COMPLETED       // legacy — no longer written by new code
+  DROPPED         // legacy — no longer written by new code
+  GRADUATED
+  NOT_GRADUATED
+  WITHDRAWN
 }
 
 enum WorkerTrainingStage {
