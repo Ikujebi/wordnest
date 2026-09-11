@@ -18,6 +18,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 
 import { CreateClassDto } from './dto/create-class.dto';
+import { AwardBadgeDto } from './dto/award-badge.dto';
 import { EnrollMemberDto } from './dto/enroll-member.dto';
 import { UpdateProgressDto } from './dto/update-progress.dto';
 import { RecordLeadershipAttendanceDto } from './dto/record-leadership-attendance.dto';
@@ -758,4 +759,43 @@ export class LeadershipService {
       );
     });
   }
+  /**
+ * Directly awards a leadership badge without requiring class enrollment
+ * or cohort finalization — for members/admins who already completed
+ * equivalent leadership formation before this system tracked it.
+ * Super Admin only; deliberately bypasses the enrollment pipeline.
+ */
+async awardBadgeDirectly(dto: AwardBadgeDto, adminId: string) {
+  const member = await this.prisma.member.findUnique({ where: { id: dto.memberId } });
+  if (!member || member.deletedAt) {
+    throw new NotFoundException('Member not found.');
+  }
+
+  const previousBadge = member.leadershipBadge;
+
+  const updated = await this.prisma.member.update({
+    where: { id: dto.memberId },
+    data: { leadershipBadge: dto.level },
+  });
+
+  await this.notificationService.notifyMember(dto.memberId, {
+    title: 'Leadership Badge Awarded',
+    message: `You've been awarded the ${dto.level} leadership badge${dto.reason ? `: ${dto.reason}` : '.'}`,
+    type: NotificationType.INFO,
+  });
+
+  await this.auditLogService.createLog(
+    { id: adminId },
+    {
+      action: AuditAction.UPDATE_LEADERSHIP_PROGRESS,
+      entity: 'Member',
+      entityId: dto.memberId,
+      description: `Manually awarded ${dto.level} leadership badge to member ${dto.memberId}${dto.reason ? ` — ${dto.reason}` : ''}`,
+      oldValues: { leadershipBadge: previousBadge },
+      newValues: { leadershipBadge: updated.leadershipBadge },
+    },
+  );
+
+  return updated;
+}
 }

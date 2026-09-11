@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
+import { AwardBadgeDto } from './dto/award-badge.dto';
 
 @Controller('leadership')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -92,4 +93,10 @@ export class LeadershipController {
   ) {
     return this.leadershipService.finalizeCohort(id, dto, req.user.id);
   }
+  @Post('award-badge')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN)
+async awardBadge(@Body() dto: AwardBadgeDto, @Req() req: any) {
+  return this.leadershipService.awardBadgeDirectly(dto, req.user.id);
+}
 }
