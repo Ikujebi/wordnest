@@ -612,32 +612,76 @@ export class WebAnalyticsService {
       );
     }
   }
+
   /**
- * Most-visited pages by page_view count over the period.
- */
-async getTopPages(days = 30, limit = 10): Promise<{ path: string; views: number }[]> {
-  const normalizedDays = Math.min(Math.max(Math.floor(Number(days) || 30), 1), 365);
-  const normalizedLimit = Math.min(Math.max(Math.floor(Number(limit) || 10), 1), 50);
+   * Most-visited pages by page_view count over the period.
+   */
+  async getTopPages(days = 30, limit = 10): Promise<{ path: string; views: number }[]> {
+    const normalizedDays = Math.min(Math.max(Math.floor(Number(days) || 30), 1), 365);
+    const normalizedLimit = Math.min(Math.max(Math.floor(Number(limit) || 10), 1), 50);
 
-  const now = new Date();
-  const startAt = new Date();
-  startAt.setDate(startAt.getDate() - normalizedDays);
+    const now = new Date();
+    const startAt = new Date();
+    startAt.setDate(startAt.getDate() - normalizedDays);
 
-  const grouped = await this.prisma.webAnalyticsEvent.groupBy({
-    by: ['path'],
-    where: {
-      event: 'page_view',
-      createdAt: { gte: startAt, lte: now },
-      path: { not: null },
-    },
-    _count: { path: true },
-    orderBy: { _count: { path: 'desc' } },
-    take: normalizedLimit,
-  });
+    const grouped = await this.prisma.webAnalyticsEvent.groupBy({
+      by: ['path'],
+      where: {
+        event: 'page_view',
+        createdAt: { gte: startAt, lte: now },
+        path: { not: null },
+      },
+      _count: { path: true },
+      orderBy: { _count: { path: 'desc' } },
+      take: normalizedLimit,
+    });
 
-  return grouped.map((g) => ({
-    path: g.path ?? '(unknown)',
-    views: g._count.path,
-  }));
-}
+    return grouped.map((g) => ({
+      path: g.path ?? '(unknown)',
+      views: g._count.path,
+    }));
+  }
+
+  /**
+   * Daily pageview/visitor trend for the period — powers the dashboard graph.
+   * Uses a raw query since Prisma's groupBy can't truncate a timestamp to a day.
+   */
+  async getDailyTrend(days = 30): Promise<{ date: string; pageviews: number; visitors: number }[]> {
+    const normalizedDays = Math.min(Math.max(Math.floor(Number(days) || 30), 1), 365);
+    const startAt = new Date();
+    startAt.setDate(startAt.getDate() - normalizedDays);
+
+    const rows = await this.prisma.$queryRaw<
+      { day: Date; pageviews: bigint; visitors: bigint }[]
+    >`
+      SELECT
+        date_trunc('day', "createdAt") as day,
+        COUNT(*) FILTER (WHERE event = 'page_view') as pageviews,
+        COUNT(DISTINCT "visitorId") as visitors
+      FROM "WebAnalyticsEvent"
+      WHERE "createdAt" >= ${startAt}
+      GROUP BY day
+      ORDER BY day ASC;
+    `;
+
+    return rows.map((r) => ({
+      date: r.day.toISOString().slice(0, 10),
+      pageviews: Number(r.pageviews),
+      visitors: Number(r.visitors),
+    }));
+  }
+
+  /**
+   * Most recent tracked events — gives "last page view" (the first item)
+   * and a general activity feed.
+   */
+  async getRecentActivity(limit = 10) {
+    const normalizedLimit = Math.min(Math.max(Math.floor(Number(limit) || 10), 1), 50);
+    return this.prisma.webAnalyticsEvent.findMany({
+      take: normalizedLimit,
+      orderBy: { createdAt: 'desc' },
+      where: { path: { not: null } },
+      select: { path: true, title: true, event: true, createdAt: true },
+    });
+  }
 }

@@ -149,5 +149,32 @@ async getTopPages(
 
   return this.webAnalyticsService.getTopPages(parsedDays, parsedLimit);
 }
+@Get('trend')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN)
+async getDailyTrend(@Query('days') days?: string) {
+  let parsedDays = 30;
+  if (days !== undefined) {
+    parsedDays = Number(days);
+    if (!Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 365) {
+      throw new BadRequestException('days must be an integer between 1 and 365.');
+    }
+  }
+  return this.webAnalyticsService.getDailyTrend(parsedDays);
+}
+
+@Get('recent')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN, Role.ADMIN)
+async getRecentActivity(@Query('limit') limit?: string) {
+  let parsedLimit = 10;
+  if (limit !== undefined) {
+    parsedLimit = Number(limit);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 50) {
+      throw new BadRequestException('limit must be an integer between 1 and 50.');
+    }
+  }
+  return this.webAnalyticsService.getRecentActivity(parsedLimit);
+}
 }
 
