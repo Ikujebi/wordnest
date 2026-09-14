@@ -209,15 +209,16 @@ export class AuthService {
     const passwordHash = await this.passwordService.hash(dto.password);
 
     // Parse full name into first and last name components for Member profile creation
-    const nameParts = dto.fullName.trim().split(' ');
-    const firstName = nameParts[0];
-    const lastName = nameParts.slice(1).join(' ') || '';
+     const firstName = dto.firstName.trim();
+    const middleName = dto.otherName?.trim() || null;
+    const lastName = dto.lastName.trim();
+    const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ')
 
     const user = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
+            const created = await tx.user.create({
         data: {
           email,
-          fullName: dto.fullName.trim(),
+          fullName, // computed from structured parts — every existing consumer of user.fullName keeps working unchanged
           phoneNumber: dto.phoneNumber?.trim() ?? null,
           profilePictureUrl: dto.profilePictureUrl ?? null,
           profilePicturePublicId: dto.profilePicturePublicId ?? null,
@@ -225,15 +226,13 @@ export class AuthService {
           role: resolvedRole,
           isActive: true,
           emailVerified: false,
-          // Still PENDING even for invited roles — the invite establishes
-          // WHO was invited and WHAT role, not that approval can be skipped.
           approvalStatus: ApprovalStatus.PENDING,
           failedLoginAttempts: 0,
           lockedUntil: null,
-          // 💥 Automatically create linked Member record upon registration
           member: {
             create: {
               firstName,
+              otherName: middleName, // or `middleName` if you add the new column
               lastName,
               email,
               phoneNumber: dto.phoneNumber?.trim() ?? null,

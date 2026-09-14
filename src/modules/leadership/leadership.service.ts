@@ -741,7 +741,55 @@ export class LeadershipService {
       },
     });
   }
+    // ============================================================
+  // LIST / GET CLASSES
+  // ============================================================
 
+  /**
+   * Returns all non-deleted leadership classes, most recently created
+   * first, with facilitator info and an enrollment count so the admin
+   * dashboard can show cohort size without a separate roster fetch.
+   */
+  async listClasses() {
+    return this.prisma.leadershipClass.findMany({
+      where: { deletedAt: null },
+      include: {
+        facilitator: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        _count: {
+          select: { enrollments: true },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  /**
+   * Returns a single leadership class by ID, including facilitator info
+   * and enrollment count, for the class detail page.
+   */
+  async getClassById(id: string) {
+    const klass = await this.prisma.leadershipClass.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        facilitator: {
+          select: { id: true, firstName: true, lastName: true, email: true },
+        },
+        _count: {
+          select: { enrollments: true },
+        },
+      },
+    });
+
+    if (!klass) {
+      throw new NotFoundException('Leadership class not found.');
+    }
+
+    return klass;
+  }
   // ============================================================
   // PRIVATE UTILITIES
   // ============================================================

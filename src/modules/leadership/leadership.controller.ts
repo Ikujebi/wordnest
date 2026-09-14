@@ -20,7 +20,15 @@ import { AwardBadgeDto } from './dto/award-badge.dto';
 @Roles(Role.SUPER_ADMIN, Role.ADMIN)
 export class LeadershipController {
   constructor(private readonly leadershipService: LeadershipService) {}
+  @Get('classes')
+  listClasses() {
+    return this.leadershipService.listClasses();
+  }
 
+  @Get('classes/:id')
+  getClass(@Param('id', ParseUUIDPipe) id: string) {
+    return this.leadershipService.getClassById(id);
+  }
   @Post('classes')
   createClass(@Body() dto: CreateClassDto) {
     return this.leadershipService.createClass(dto);
@@ -36,7 +44,7 @@ export class LeadershipController {
     return this.leadershipService.getClassRoster(id);
   }
 
-  @Patch('classes/:id/students/:memberId')
+@Patch('classes/:id/members/:memberId/progress')
   updateStudentTrack(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('memberId', ParseUUIDPipe) memberId: string,
@@ -45,7 +53,7 @@ export class LeadershipController {
     return this.leadershipService.updateStudentTrack(id, memberId, dto);
   }
 
-  @Delete('classes/:id/students/:memberId')
+  @Post('classes/:id/members/:memberId/withdraw')
   withdrawStudent(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('memberId', ParseUUIDPipe) memberId: string,
@@ -99,4 +107,5 @@ export class LeadershipController {
 async awardBadge(@Body() dto: AwardBadgeDto, @Req() req: any) {
   return this.leadershipService.awardBadgeDirectly(dto, req.user.id);
 }
+
 }
