@@ -180,5 +180,9 @@ export class DepartmentsController {
   async getDepartment(@Param('id', ParseUUIDPipe) id: string) {
     return this.departmentsService.findOne(id);
   }
-
+@Delete(':id')
+@Roles(Role.SUPER_ADMIN)
+remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+  return this.departmentsService.remove(id, req.user.id);
+}
 }

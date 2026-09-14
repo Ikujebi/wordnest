@@ -854,4 +854,73 @@ export class DepartmentsService implements OnModuleInit {
       memberCount: m.department._count.members,
     }));
   }
+  /**
+ * Soft-deletes a department and cascades to soft-delete its active
+ * roster (DepartmentMember rows) and deactivate any linked Worker
+ * records, mirroring MinistriesService.remove's cascade pattern.
+ */
+async remove(id: string, removerId: string): Promise<{ message: string }> {
+  const department = await this.prisma.department.findUnique({
+    where: { id, deletedAt: null },
+    include: {
+      members: { where: { deletedAt: null, status: 'ACTIVE' } },
+    },
+  });
+
+  if (!department) {
+    throw new NotFoundException('Department not found.');
+  }
+
+  try {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.department.update({
+        where: { id },
+        data: { deletedAt: new Date(), updatedById: removerId },
+      });
+
+      await tx.departmentMember.updateMany({
+        where: { departmentId: id, deletedAt: null },
+        data: { deletedAt: new Date(), leftAt: new Date(), updatedById: removerId },
+      });
+
+      // Deactivate workers whose home department is being removed —
+      // does not delete Worker rows, just marks them inactive so
+      // performance/roster views stop counting them here.
+      await tx.worker.updateMany({
+        where: { departmentId: id, deletedAt: null },
+        data: { isActive: false },
+      });
+    });
+
+    await this.auditLogService.createLog(
+      { id: removerId },
+      {
+        action: AuditAction.DELETE_DEPARTMENT,
+        entity: 'Department',
+        entityId: id,
+        description: `Department "${department.name}" was deleted, along with ${department.members.length} active roster record(s).`,
+        oldValues: department,
+      },
+    );
+
+    if (department.leaderId) {
+      await this.notificationService.notifyMember(department.leaderId, {
+        title: 'Department Removed',
+        message: `The department "${department.name}", which you led, has been removed.`,
+        type: NotificationType.SYSTEM,
+      });
+    }
+
+    return { message: 'Department deleted successfully.' };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      throw new NotFoundException('Department not found.');
+    }
+    this.logger.error(
+      `Failed to delete department ${id}`,
+      error instanceof Error ? error.stack : String(error),
+    );
+    throw new InternalServerErrorException('Failed to delete department.');
+  }
+}
 }
