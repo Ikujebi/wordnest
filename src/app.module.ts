@@ -34,6 +34,7 @@ import { SystemModule } from './system/system.module';
 import { InvitesModule } from './modules/invites/invites.module';
 import { WorkerModule } from './modules/worker/worker.module';
 import { WorkerPipelineModule } from './modules/worker-pipeline/worker-pipeline.module';
+import { SubscribersModule } from './modules/subscribers/subscribers.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -89,6 +90,7 @@ import { WorkerPipelineModule } from './modules/worker-pipeline/worker-pipeline.
     LeadershipModule,
     GivingsModule,
     ContactModule,
+    SubscribersModule,
     SystemModule,
     InvitesModule,
     WorkerModule,
