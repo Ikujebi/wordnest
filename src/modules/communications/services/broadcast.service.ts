@@ -4,7 +4,7 @@ import {
   InternalServerErrorException,
   BadRequestException,
 } from '@nestjs/common';
-// Pulling real type-safe enums directly from your generated Prisma schema client
+import { ConfigService } from '@nestjs/config';
 import {
   CommunicationChannel,
   CommunicationStatus
@@ -22,6 +22,7 @@ interface SendChannelPayload {
     email?: string | null;
     phone?: string | null;
     memberId?: string | null;
+    subscriberUnsubscribeToken?: string | null;
   };
   communication: {
     title: string;
@@ -41,15 +42,21 @@ export class BroadcastService {
     private readonly smsService: SmsService,
     private readonly pushService: WebPushService,
     private readonly whatsappService: WhatsappService,
-  ) { }
+    private readonly configService: ConfigService,
+  ) {}
 
-  /**
-   * Send communication broadcast
-   */
   async send(communicationId: string) {
     const communication = await this.prisma.communication.findUnique({
       where: { id: communicationId },
-      include: { recipients: true },
+      include: {
+        recipients: {
+          include: {
+            // Only the token is needed — used to build a one-click
+            // unsubscribe link for Subscriber-kind recipients.
+            subscriber: { select: { unsubscribeToken: true } },
+          },
+        },
+      },
     });
 
     if (!communication) {
@@ -68,7 +75,6 @@ export class BroadcastService {
     let successful = 0;
     let failed = 0;
 
-    // Pull targeted communication channels directly from your Prisma array list
     const targetChannels: CommunicationChannel[] = (communication as any).channels || [];
     try {
       for (const recipient of communication.recipients) {
@@ -76,7 +82,10 @@ export class BroadcastService {
           try {
             await this.sendThroughChannel(channel, {
               communicationId,
-              recipient,
+              recipient: {
+                ...recipient,
+                subscriberUnsubscribeToken: recipient.subscriber?.unsubscribeToken ?? null,
+              },
               communication: {
                 title: communication.title,
                 subject: communication.subject,
@@ -85,7 +94,6 @@ export class BroadcastService {
               },
             });
 
-            // Only write generic centralized logs if the channel doesn't write logs internally
             if (channel !== CommunicationChannel.SMS && channel !== CommunicationChannel.WHATSAPP) {
               await this.createLog({
                 communicationId,
@@ -100,7 +108,6 @@ export class BroadcastService {
             failed++;
             const errorMessage = error.message || 'Unknown error occurred during transmission';
 
-            // Only write centralized error logs if the channel doesn't handle its own logging
             if (channel !== CommunicationChannel.SMS && channel !== CommunicationChannel.WHATSAPP) {
               await this.createLog({
                 communicationId,
@@ -126,12 +133,7 @@ export class BroadcastService {
         },
       });
 
-      return {
-        message: 'Broadcast completed',
-        successful,
-        failed,
-      };
-
+      return { message: 'Broadcast completed', successful, failed };
     } catch (error) {
       await this.prisma.communication.update({
         where: { id: communicationId },
@@ -144,26 +146,36 @@ export class BroadcastService {
   }
 
   /**
-   * Embed attached images directly into Email HTML body
+   * Embed attached images and, for subscriber recipients, a one-click
+   * unsubscribe footer into the outgoing HTML email body.
    */
-  private buildEmailHtml(content: string, imageUrls: string[] = []): string {
-    if (!imageUrls.length) return content;
-    const imagesHtml = imageUrls
-      .map((url) => `<img src="${url}" alt="" style="max-width:100%;height:auto;margin-top:12px;border-radius:8px;" />`)
-      .join('');
-    return `${content}${imagesHtml}`;
+  private buildEmailHtml(content: string, imageUrls: string[] = [], unsubscribeUrl?: string | null): string {
+    let html = content;
+
+    if (imageUrls.length) {
+      const imagesHtml = imageUrls
+        .map((url) => `<img src="${url}" alt="" style="max-width:100%;height:auto;margin-top:12px;border-radius:8px;" />`)
+        .join('');
+      html += imagesHtml;
+    }
+
+    if (unsubscribeUrl) {
+      html += `
+        <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;text-align:center;">
+          <a href="${unsubscribeUrl}" style="color:#999;font-size:12px;text-decoration:underline;">
+            Unsubscribe from these emails
+          </a>
+        </div>
+      `;
+    }
+
+    return html;
   }
 
-  /**
-   * Minimal strip for plain-text channels (SMS, WhatsApp, Push)
-   */
   private stripHtmlForPlainText(html: string): string {
     return html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   }
 
-  /**
-   * Send using selected channel
-   */
   private async sendThroughChannel(
     channel: CommunicationChannel,
     data: SendChannelPayload,
@@ -173,10 +185,17 @@ export class BroadcastService {
         if (!data.recipient.email) throw new Error('Recipient has no email set');
 
         const imageUrls = (data.communication as any).imageUrls ?? [];
+
+        // Only Subscriber-kind recipients get this link — Members manage
+        // email preferences from their own portal profile instead.
+        const unsubscribeUrl = data.recipient.subscriberUnsubscribeToken
+          ? `${this.configService.get<string>('FRONTEND_URL')}/unsubscribe?token=${data.recipient.subscriberUnsubscribeToken}`
+          : null;
+
         const emailResult = await this.emailService.send({
           to: data.recipient.email,
           subject: data.communication.subject || 'No Subject',
-          html: this.buildEmailHtml(data.communication.content, imageUrls),
+          html: this.buildEmailHtml(data.communication.content, imageUrls, unsubscribeUrl),
         });
 
         if (!emailResult.success) {
@@ -187,66 +206,40 @@ export class BroadcastService {
 
       case CommunicationChannel.SMS: {
         if (!data.recipient.phone) throw new Error('Recipient has no phone number set');
-
         const imageUrls = (data.communication as any).imageUrls ?? [];
         const plainText = this.stripHtmlForPlainText(data.communication.content)
           + (imageUrls.length ? ` [${imageUrls.length} image(s) attached — view online]` : '');
-
         const smsSuccess = await this.smsService.sendSms(
-          data.communicationId,
-          data.recipient.id,
-          data.recipient.phone,
-          plainText,
+          data.communicationId, data.recipient.id, data.recipient.phone, plainText,
         );
-
         if (!smsSuccess) throw new Error('SmsService failed to process SMS delivery');
         return smsSuccess;
       }
 
       case CommunicationChannel.WHATSAPP: {
         if (!data.recipient.phone) throw new Error('Recipient has no phone number set for WhatsApp');
-
         const imageUrls = (data.communication as any).imageUrls ?? [];
         const firstImageUrl = imageUrls.length ? imageUrls[0] : undefined;
-
         const plainText = this.stripHtmlForPlainText(data.communication.content)
           + (imageUrls.length > 1 ? ` [${imageUrls.length} images attached]` : '');
-
         const whatsappSuccess = await this.whatsappService.sendWhatsapp(
-          data.communicationId,
-          data.recipient.id,
-          data.recipient.phone,
-          plainText,
-          firstImageUrl,
+          data.communicationId, data.recipient.id, data.recipient.phone, plainText, firstImageUrl,
         );
-
         if (!whatsappSuccess) throw new Error('WhatsappService failed to process WhatsApp delivery');
         return whatsappSuccess;
       }
 
       case CommunicationChannel.PUSH: {
         if (!data.recipient.memberId) throw new Error('Recipient has no member profile for push targeting');
-
         const imageUrls = (data.communication as any).imageUrls ?? [];
         const plainText = this.stripHtmlForPlainText(data.communication.content)
           + (imageUrls.length ? ` [${imageUrls.length} image(s) attached]` : '');
-
-        const mockSubscription = {
-          endpoint: '',
-          keys: { p256dh: '', auth: '' }
-        };
-
-        const pushResult = await this.pushService.send(
-          mockSubscription,
-          {
-            title: data.communication.title,
-            body: plainText,
-          }
-        );
-
-        if (!pushResult.success) {
-          throw new Error(pushResult.error || 'WebPushService failed to dispatch notice');
-        }
+        const mockSubscription = { endpoint: '', keys: { p256dh: '', auth: '' } };
+        const pushResult = await this.pushService.send(mockSubscription, {
+          title: data.communication.title,
+          body: plainText,
+        });
+        if (!pushResult.success) throw new Error(pushResult.error || 'WebPushService failed to dispatch notice');
         return pushResult;
       }
 
@@ -255,9 +248,6 @@ export class BroadcastService {
     }
   }
 
-  /**
-   * Save delivery log
-   */
   private async createLog(data: {
     communicationId: string;
     channel: CommunicationChannel;
@@ -274,23 +264,11 @@ export class BroadcastService {
     });
   }
 
-  /**
-   * Retry failed broadcast entries
-   */
   async retryFailed(communicationId: string) {
     const failedLogs = await this.prisma.communicationLog.findMany({
-      where: {
-        communicationId,
-        success: false,
-      },
+      where: { communicationId, success: false },
     });
-
-    if (!failedLogs.length) {
-      return {
-        message: 'No failed deliveries found',
-      };
-    }
-
+    if (!failedLogs.length) return { message: 'No failed deliveries found' };
     return this.send(communicationId);
   }
 }

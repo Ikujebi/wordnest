@@ -35,6 +35,7 @@ import { InvitesModule } from './modules/invites/invites.module';
 import { WorkerModule } from './modules/worker/worker.module';
 import { WorkerPipelineModule } from './modules/worker-pipeline/worker-pipeline.module';
 import { SubscribersModule } from './modules/subscribers/subscribers.module';
+import { BlogPostsModule } from './modules/blog-posts/blog-posts.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -96,6 +97,7 @@ import { SubscribersModule } from './modules/subscribers/subscribers.module';
     WorkerModule,
     WorkerPipelineModule,
     HealthModule,
+    BlogPostsModule,
   ],
 
   controllers: [AppController],
