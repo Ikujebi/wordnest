@@ -206,57 +206,191 @@ export class BlogPostsService {
   }
 
   async notifySubscribers(id: string, performingUserId: string) {
-    const post = await this.findOne(id);
-    if (!post.isPublished) {
-      throw new BadRequestException('Only published posts can be sent to subscribers.');
-    }
+  const post = await this.findOne(id);
+  if (!post.isPublished) {
+    throw new BadRequestException('Only published posts can be sent to subscribers.');
+  }
 
-    const recipients = await this.recipientService.resolveRecipients({ type: 'ALL_MEMBERS_AND_SUBSCRIBERS' });
-    const unique = this.recipientService.removeDuplicates(recipients);
+  const recipients = await this.recipientService.resolveRecipients({ type: 'ALL_MEMBERS_AND_SUBSCRIBERS' });
+  const unique = this.recipientService.removeDuplicates(recipients);
 
-    const blogUrl = `https://www.wordtabernacle.org.ng/blog/${post.slug}`;
-    const bodyText = post.excerpt || post.content.slice(0, 300);
+  const blogUrl = `https://www.wordtabernacle.org.ng/blog/${post.slug}`;
+  
+  // Clean raw HTML tags and truncate cleanly at whole words
+  const rawExcerpt = (post.excerpt || post.content)
+    .replace(/<[^>]*>?/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const previewSnippet = rawExcerpt.length > 220 
+    ? `${rawExcerpt.slice(0, 220).replace(/\s+\S*$/, '')}...`
+    : rawExcerpt;
 
-    const coverImageHtml = post.coverImage
-      ? `<img src="${post.coverImage}" alt="${post.title}" style="width:100%;max-width:560px;height:auto;border-radius:12px;margin-bottom:16px;display:block;" />`
-      : '';
+  const currentYear = new Date().getFullYear();
 
-    const contentHtml = `
-    ${coverImageHtml}
-    <h2>${post.title}</h2>
-    <p>${bodyText}</p>
-    <p><a href="${blogUrl}">Read the full post</a></p>
+  // Bulletproof Cover Image HTML for Outlook and Modern Clients
+  const coverImageHtml = post.coverImage
+    ? `
+      <tr>
+        <td align="center" style="padding:0 0 24px 0;margin:0;">
+          <a href="${blogUrl}" target="_blank" style="text-decoration:none;display:block;">
+            <img 
+              src="${post.coverImage}" 
+              alt="${post.title}" 
+              width="550" 
+              style="display:block;width:100%;max-width:550px;height:auto;max-height:280px;object-fit:cover;border:0;outline:none;text-decoration:none;border-radius:8px;" 
+            />
+          </a>
+        </td>
+      </tr>
+    `
+    : '';
+
+  // World-Class Responsive Email HTML Template
+  const contentHtml = `
+    <!DOCTYPE html>
+    <html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="x-apple-disable-message-reformatting">
+      <title>${post.title}</title>
+      <!--[if mso]>
+      <noscript>
+        <xml>
+          <o:OfficeDocumentSettings>
+            <o:PixelsPerInch>96</o:PixelsPerInch>
+          </o:OfficeDocumentSettings>
+        </xml>
+      </noscript>
+      <![endif]-->
+      <style>
+        table { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { border: 0; line-height: 100%; outline: none; text-decoration: none; }
+        body { margin: 0; padding: 0; width: 100% !important; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; background-color: #f4f5f7; }
+      </style>
+    </head>
+    <body style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+      
+      <!-- Preheader snippet for inbox preview -->
+      <div style="display:none;font-size:1px;color:#f4f5f7;line-height:1px;max-height:0px;max-width:0px;opacity:0;overflow:hidden;">
+        ${previewSnippet}
+      </div>
+
+      <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="background-color:#f4f5f7;table-layout:fixed;">
+        <tr>
+          <td align="center" style="padding:32px 16px;">
+            
+            <!-- Main Email Box -->
+            <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation" style="max-width:600px;background-color:#ffffff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;">
+              
+              <!-- Header Section -->
+              <tr>
+                <td style="padding:28px 32px 20px 32px;border-bottom:1px solid #f3f4f6;" align="left">
+                  <span style="font-size:11px;font-weight:800;letter-spacing:0.15em;color:#5f021f;text-transform:uppercase;display:block;margin-bottom:4px;">
+                    WORD TABERNACLE
+                  </span>
+                  <span style="font-size:12px;color:#6b7280;font-weight:500;">
+                    Official Publication
+                  </span>
+                </td>
+              </tr>
+
+              <!-- Content Section -->
+              <tr>
+                <td style="padding:28px 32px 32px 32px;">
+                  <table border="0" cellpadding="0" cellspacing="0" width="100%" role="presentation">
+                    
+                    ${coverImageHtml}
+
+                    <!-- Article Tag & Title -->
+                    <tr>
+                      <td style="padding:0 0 12px 0;">
+                        <h1 style="margin:0;font-size:22px;line-height:1.35;font-weight:700;color:#111827;letter-spacing:-0.01em;">
+                          ${post.title}
+                        </h1>
+                      </td>
+                    </tr>
+
+                    <!-- Body Preview Text -->
+                    <tr>
+                      <td style="padding:0 0 28px 0;">
+                        <p style="margin:0;font-size:15px;line-height:1.65;color:#4b5563;font-weight:400;">
+                          ${previewSnippet}
+                        </p>
+                      </td>
+                    </tr>
+
+                    <!-- CTA Button -->
+                    <tr>
+                      <td align="left" style="padding:0 0 8px 0;">
+                        <!--[if mso]>
+                        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${blogUrl}" style="height:44px;v-text-anchor:middle;width:180px;" arcsize="18%" stroke="f" fillcolor="#5f021f">
+                          <w:anchorlock/>
+                          <center style="color:#ffffff;font-family:sans-serif;font-size:14px;font-weight:bold;">Read Full Article</center>
+                        </v:roundrect>
+                        <![endif]-->
+                        <!--[if !mso]><!-->
+                        <a href="${blogUrl}" target="_blank" style="display:inline-block;background-color:#5f021f;color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;text-align:center;">
+                          Read Full Article &rarr;
+                        </a>
+                        <!--<![endif]-->
+                      </td>
+                    </tr>
+
+                  </table>
+                </td>
+              </tr>
+
+              <!-- Footer Section -->
+              <tr>
+                <td style="background-color:#fafafa;padding:24px 32px;border-top:1px solid #f3f4f6;text-align:center;">
+                  <p style="margin:0 0 8px 0;font-size:12px;color:#6b7280;line-height:1.5;">
+                    You are receiving this email because you are a registered member or subscriber of <strong>Word Tabernacle</strong>.
+                  </p>
+                  <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.4;">
+                    &copy; ${currentYear} Word Tabernacle. All rights reserved.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
   `;
 
-    const communication = await this.prisma.communication.create({
-      data: {
-        title: `New Blog Post: ${post.title}`,
-        subject: post.title,
-        content: contentHtml,
-        type: 'BLOG_POST',
-        status: 'DRAFT',
-        channels: ['EMAIL'],
-        imageUrls: post.coverImage ? [post.coverImage] : [],
-        createdById: performingUserId,
-      },
-    });
+  const communication = await this.prisma.communication.create({
+    data: {
+      title: `New Blog Post: ${post.title}`,
+      subject: post.title,
+      content: contentHtml,
+      type: 'BLOG_POST',
+      status: 'DRAFT',
+      channels: ['EMAIL'],
+      imageUrls: post.coverImage ? [post.coverImage] : [],
+      createdById: performingUserId,
+    },
+  });
 
-    await this.recipientService.attachRecipients(communication.id, unique);
-    const result = await this.broadcastService.send(communication.id);
+  await this.recipientService.attachRecipients(communication.id, unique);
+  const result = await this.broadcastService.send(communication.id);
 
-    await this.auditLogService.createLog(
-      { id: performingUserId },
-      {
-        action: AuditAction.SEND_COMMUNICATION,
-        entity: 'BlogPost',
-        entityId: id,
-        description: `Notified ${unique.length} recipients about blog post "${post.title}"`,
-        metadata: result,
-      },
-    );
+  await this.auditLogService.createLog(
+    { id: performingUserId },
+    {
+      action: AuditAction.SEND_COMMUNICATION,
+      entity: 'BlogPost',
+      entityId: id,
+      description: `Notified ${unique.length} recipients about blog post "${post.title}"`,
+      metadata: result,
+    },
+  );
 
-    return result;
-  }
+  return result;
+}
 
   async findBySlug(slug: string): Promise<BlogPost> {
     const post = await this.prisma.blogPost.findFirst({
