@@ -37,7 +37,7 @@ export class EmailService {
     this.resend = new Resend(apiKey);
     
     // Uses your verified sending subdomain routing configuration
-    this.defaultFromAddress = process.env.EMAIL_FROM_DEFAULT || 'WordTabernacle <no-reply@send.wordtabernacle.org.ng>';
+    this.defaultFromAddress = process.env.EMAIL_FROM_DEFAULT || 'WordTabernacle <no-reply@api.wordtabernacle.org.ng>';
   }
 
   /**

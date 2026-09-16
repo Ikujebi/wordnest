@@ -11,6 +11,8 @@ import { RecipientService } from '../communications/services/recipient.service';
 import { BroadcastService } from '../communications/services/broadcast.service';
 import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 
+type BlogPostWithNotifyStatus = BlogPost & { notified?: boolean; notifyError?: string };
+
 @Injectable()
 export class BlogPostsService {
   private readonly logger = new Logger(BlogPostsService.name);
@@ -20,15 +22,15 @@ export class BlogPostsService {
     private readonly auditLogService: AuditLogService,
     private readonly recipientService: RecipientService,
     private readonly broadcastService: BroadcastService,
-      private readonly cloudinaryService: CloudinaryService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
-  ) { }
-
-  async create(dto: CreateBlogPostDto, authorId: string): Promise<BlogPost> {
+  async create(dto: CreateBlogPostDto, authorId: string): Promise<BlogPostWithNotifyStatus> {
     const slug = slugify(dto.title, { lower: true, strict: true });
 
+    let post: BlogPost;
     try {
-      const post = await this.prisma.blogPost.create({
+      post = await this.prisma.blogPost.create({
         data: {
           title: dto.title,
           slug,
@@ -41,25 +43,101 @@ export class BlogPostsService {
           createdById: authorId,
         },
       });
-
-      await this.auditLogService.createLog(
-        { id: authorId },
-        {
-          action: AuditAction.CREATE_BLOG_POST,
-          entity: 'BlogPost',
-          entityId: post.id,
-          description: `Blog post "${post.title}" was created.`,
-          newValues: post,
-        },
-      );
-
-      return post;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('A blog post with this title already exists.');
       }
       this.logger.error('Failed to create blog post', error instanceof Error ? error.stack : String(error));
       throw new InternalServerErrorException('Could not create blog post.');
+    }
+
+    await this.auditLogService.createLog(
+      { id: authorId },
+      {
+        action: AuditAction.CREATE_BLOG_POST,
+        entity: 'BlogPost',
+        entityId: post.id,
+        description: `Blog post "${post.title}" was created.`,
+        newValues: post,
+      },
+    );
+
+    // A post created directly as Published gets the same auto-notify
+    // treatment as one published later via an edit — see the identical
+    // block in update() for the reasoning.
+    if (post.isPublished) {
+      return this.notifyAfterPublish(post, authorId);
+    }
+
+    return post;
+  }
+
+  async update(id: string, dto: UpdateBlogPostDto, adminId: string): Promise<BlogPostWithNotifyStatus> {
+    const existing = await this.findOne(id);
+
+    const wasPublished = existing.isPublished;
+    const willBePublished = dto.isPublished ?? existing.isPublished;
+    const isNewlyPublished = willBePublished && !wasPublished;
+
+    let updated: BlogPost;
+    try {
+      updated = await this.prisma.blogPost.update({
+        where: { id },
+        data: {
+          ...dto,
+          updatedById: adminId,
+          // Set publishedAt the first time a post transitions draft -> published
+          ...(isNewlyPublished ? { publishedAt: new Date() } : {}),
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('A blog post with this title already exists.');
+      }
+      throw new InternalServerErrorException('Could not update blog post.');
+    }
+
+    await this.auditLogService.createLog(
+      { id: adminId },
+      {
+        action: isNewlyPublished ? AuditAction.PUBLISH_BLOG_POST : AuditAction.UPDATE_BLOG_POST,
+        entity: 'BlogPost',
+        entityId: id,
+        description: `Blog post "${existing.title}" was ${isNewlyPublished ? 'published' : 'updated'}.`,
+        oldValues: existing,
+        newValues: updated,
+      },
+    );
+
+    if (isNewlyPublished) {
+      return this.notifyAfterPublish(updated, adminId);
+    }
+
+    return updated;
+  }
+
+  /**
+   * Fires the subscriber notification immediately after a post transitions
+   * to published — whether that happens at creation or via a later edit.
+   * Isolated in its own try/catch so an email failure (bad Resend config,
+   * network blip) never rolls back or fails the publish itself: the post
+   * stays live either way, and the caller gets a `notified` flag to show
+   * the admin whether the email actually went out.
+   */
+  private async notifyAfterPublish(post: BlogPost, performingUserId: string): Promise<BlogPostWithNotifyStatus> {
+    try {
+      await this.notifySubscribers(post.id, performingUserId);
+      return { ...post, notified: true };
+    } catch (error) {
+      this.logger.error(
+        `Post "${post.title}" published, but auto-notify to subscribers failed.`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return {
+        ...post,
+        notified: false,
+        notifyError: error instanceof Error ? error.message : 'Failed to notify subscribers.',
+      };
     }
   }
 
@@ -104,44 +182,6 @@ export class BlogPostsService {
     return post;
   }
 
-  async update(id: string, dto: UpdateBlogPostDto, adminId: string): Promise<BlogPost> {
-    const existing = await this.findOne(id);
-
-    const wasPublished = existing.isPublished;
-    const willBePublished = dto.isPublished ?? existing.isPublished;
-
-    try {
-      const updated = await this.prisma.blogPost.update({
-        where: { id },
-        data: {
-          ...dto,
-          updatedById: adminId,
-          // Set publishedAt the first time a post transitions draft -> published
-          ...(willBePublished && !wasPublished ? { publishedAt: new Date() } : {}),
-        },
-      });
-
-      await this.auditLogService.createLog(
-        { id: adminId },
-        {
-          action: willBePublished && !wasPublished ? AuditAction.PUBLISH_BLOG_POST : AuditAction.UPDATE_BLOG_POST,
-          entity: 'BlogPost',
-          entityId: id,
-          description: `Blog post "${existing.title}" was ${willBePublished && !wasPublished ? 'published' : 'updated'}.`,
-          oldValues: existing,
-          newValues: updated,
-        },
-      );
-
-      return updated;
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException('A blog post with this title already exists.');
-      }
-      throw new InternalServerErrorException('Could not update blog post.');
-    }
-  }
-
   async remove(id: string, adminId: string) {
     const existing = await this.findOne(id);
 
@@ -164,6 +204,7 @@ export class BlogPostsService {
 
     return { message: 'Blog post deleted successfully.' };
   }
+
   async notifySubscribers(id: string, performingUserId: string) {
     const post = await this.findOne(id);
     if (!post.isPublished) {
@@ -176,9 +217,6 @@ export class BlogPostsService {
     const blogUrl = `https://www.wordtabernacle.org.ng/blog/${post.slug}`;
     const bodyText = post.excerpt || post.content.slice(0, 300);
 
-    // Previously the cover image was stored in imageUrls on the Communication
-    // record but never actually embedded in the email HTML — subscribers got
-    // a plain text/link email with no picture. Now embedded directly.
     const coverImageHtml = post.coverImage
       ? `<img src="${post.coverImage}" alt="${post.title}" style="width:100%;max-width:560px;height:auto;border-radius:12px;margin-bottom:16px;display:block;" />`
       : '';
@@ -219,6 +257,7 @@ export class BlogPostsService {
 
     return result;
   }
+
   async findBySlug(slug: string): Promise<BlogPost> {
     const post = await this.prisma.blogPost.findFirst({
       where: { slug, deletedAt: null, isPublished: true },
@@ -227,15 +266,16 @@ export class BlogPostsService {
     if (!post) throw new NotFoundException('Blog post not found.');
     return post;
   }
+
   async uploadCoverImage(file: Express.Multer.File) {
-  if (!file) {
-    throw new BadRequestException('No file provided.');
+    if (!file) {
+      throw new BadRequestException('No file provided.');
+    }
+
+    const uploaded = await this.cloudinaryService.uploadFile(file, {
+      folder: 'blog-covers',
+    });
+
+    return { url: uploaded.secure_url, publicId: uploaded.public_id };
   }
-
-  const uploaded = await this.cloudinaryService.uploadFile(file, {
-    folder: 'blog-covers',
-  });
-
-  return { url: uploaded.secure_url, publicId: uploaded.public_id };
-}
 }

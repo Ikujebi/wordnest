@@ -34,7 +34,7 @@ export class EmailService {
     this.resend = new Resend(apiKey);
     this.defaultFrom =
       this.config.get<string>('EMAIL_FROM_DEFAULT') ??
-      'WordTabernacle <no-reply@send.wordtabernacle.org.ng>';
+      'WordTabernacle <no-reply@api.wordtabernacle.org.ng>';
   }
 
   async queueEmail(options: SendEmailOptions) {
