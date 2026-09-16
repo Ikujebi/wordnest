@@ -63,4 +63,10 @@ export class SubscribersService {
 
     return { message: 'You have been successfully unsubscribed.' };
   }
+  async getActiveCount() {
+  const count = await this.prisma.subscriber.count({
+    where: { isActive: true, unsubscribedAt: null },
+  });
+  return { count };
+}
 }

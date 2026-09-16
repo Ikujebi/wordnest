@@ -19,4 +19,8 @@ export class SubscribersController {
   unsubscribe(@Query('token') token: string) {
     return this.subscribersService.unsubscribe(token);
   }
+  @Get('count')
+  getCount() {
+    return this.subscribersService.getActiveCount();
+  }
 }
