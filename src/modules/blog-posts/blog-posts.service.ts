@@ -363,14 +363,14 @@ export class BlogPostsService {
   `;
 
   const communication = await this.prisma.communication.create({
-    data: {
+   data: {
       title: `New Blog Post: ${post.title}`,
       subject: post.title,
       content: contentHtml,
       type: 'BLOG_POST',
       status: 'DRAFT',
       channels: ['EMAIL'],
-      imageUrls: post.coverImage ? [post.coverImage] : [],
+      imageUrls: [], // was: post.coverImage ? [post.coverImage] : [] — the cover image is already embedded in contentHtml itself; setting it here too caused it to render a second time
       createdById: performingUserId,
     },
   });

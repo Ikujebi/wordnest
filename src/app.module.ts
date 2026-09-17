@@ -36,6 +36,7 @@ import { WorkerModule } from './modules/worker/worker.module';
 import { WorkerPipelineModule } from './modules/worker-pipeline/worker-pipeline.module';
 import { SubscribersModule } from './modules/subscribers/subscribers.module';
 import { BlogPostsModule } from './modules/blog-posts/blog-posts.module';
+import { MemberSelfModule } from './modules/member-self/member-self.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -98,6 +99,7 @@ import { BlogPostsModule } from './modules/blog-posts/blog-posts.module';
     WorkerPipelineModule,
     HealthModule,
     BlogPostsModule,
+    MemberSelfModule,
   ],
 
   controllers: [AppController],

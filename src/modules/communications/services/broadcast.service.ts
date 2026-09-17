@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   CommunicationChannel,
-  CommunicationStatus
+  CommunicationStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { EmailService } from '../channels/email.service';
@@ -23,6 +23,7 @@ interface SendChannelPayload {
     phone?: string | null;
     memberId?: string | null;
     subscriberUnsubscribeToken?: string | null;
+    recipientRole?: string | null;
   };
   communication: {
     title: string;
@@ -54,6 +55,10 @@ export class BroadcastService {
             // Only the token is needed — used to build a one-click
             // unsubscribe link for Subscriber-kind recipients.
             subscriber: { select: { unsubscribeToken: true } },
+            // Only the role is needed — used to route Member-kind
+            // recipients to the correct portal settings page (member vs
+            // admin vs super admin), since each lives at a different path.
+            member: { select: { user: { select: { role: true } } } },
           },
         },
       },
@@ -85,6 +90,7 @@ export class BroadcastService {
               recipient: {
                 ...recipient,
                 subscriberUnsubscribeToken: recipient.subscriber?.unsubscribeToken ?? null,
+                recipientRole: (recipient as any).member?.user?.role ?? null,
               },
               communication: {
                 title: communication.title,
@@ -146,30 +152,73 @@ export class BroadcastService {
   }
 
   /**
-   * Embed attached images and, for subscriber recipients, a one-click
-   * unsubscribe footer into the outgoing HTML email body.
+   * Resolves the correct portal settings path for a given role. Returns
+   * null for roles with no known settings page, so the footer simply
+   * omits the link rather than pointing at a guessed URL.
    */
-  private buildEmailHtml(content: string, imageUrls: string[] = [], unsubscribeUrl?: string | null): string {
-    let html = content;
+  private resolveSettingsPath(role: string | null | undefined): string | null {
+    switch (role) {
+      case 'MEMBER':
+        return '/member/settings';
+      case 'ADMIN':
+        return '/admin/settings';
+      case 'SUPER_ADMIN':
+        return '/super-admin/settings';
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Embed attached images, a one-click unsubscribe link (Subscriber
+   * recipients), and a portal preferences link (Member/Admin recipients)
+   * into the outgoing HTML email body.
+   */
+  private buildEmailHtml(
+    content: string,
+    imageUrls: string[] = [],
+    unsubscribeUrl?: string | null,
+    settingsUrl?: string | null,
+  ): string {
+    let extras = '';
 
     if (imageUrls.length) {
-      const imagesHtml = imageUrls
+      extras += imageUrls
         .map((url) => `<img src="${url}" alt="" style="max-width:100%;height:auto;margin-top:12px;border-radius:8px;" />`)
         .join('');
-      html += imagesHtml;
     }
 
-    if (unsubscribeUrl) {
-      html += `
+    if (unsubscribeUrl || settingsUrl) {
+      extras += `
         <div style="margin-top:32px;padding-top:16px;border-top:1px solid #eee;text-align:center;">
-          <a href="${unsubscribeUrl}" style="color:#999;font-size:12px;text-decoration:underline;">
-            Unsubscribe from these emails
-          </a>
+          ${
+            unsubscribeUrl
+              ? `<a href="${unsubscribeUrl}" style="color:#999;font-size:12px;text-decoration:underline;">Unsubscribe from these emails</a>`
+              : ''
+          }
+          ${
+            settingsUrl
+              ? `<a href="${settingsUrl}" style="color:#999;font-size:12px;text-decoration:underline;">Manage your email preferences</a>`
+              : ''
+          }
         </div>
       `;
     }
 
-    return html;
+    if (!extras) return content;
+
+    // content may be a plain fragment (most broadcasts) or a complete
+    // standalone document with its own <html>/<body> wrapper — e.g. the
+    // blog-post notification template. Appending extras after a full
+    // document lands them past </html>, where every major email client
+    // silently discards them. Inject before the closing </body> when one
+    // exists so extras always land inside the rendered document; fall
+    // back to a plain append for fragment-style content with no <body>.
+    if (/<\/body>/i.test(content)) {
+      return content.replace(/<\/body>/i, `${extras}</body>`);
+    }
+
+    return content + extras;
   }
 
   private stripHtmlForPlainText(html: string): string {
@@ -185,17 +234,30 @@ export class BroadcastService {
         if (!data.recipient.email) throw new Error('Recipient has no email set');
 
         const imageUrls = (data.communication as any).imageUrls ?? [];
+        const frontendUrl =
+          this.configService.get<string>('FRONTEND_URL') || 'https://portal.wordtabernacle.org.ng';
+        // The backend's own public base URL — the unsubscribe link points
+        // directly at the API (a plain, no-confirmation GET), not at a
+        // frontend page. Set API_PUBLIC_URL in .env to avoid relying on
+        // this fallback.
+        const apiPublicUrl =
+          this.configService.get<string>('API_PUBLIC_URL') || 'https://api.wordtabernacle.org.ng/api';
 
-        // Only Subscriber-kind recipients get this link — Members manage
-        // email preferences from their own portal profile instead.
+        // Only Subscriber-kind recipients get this — Members/Admins manage
+        // email preferences from their own portal settings page instead.
         const unsubscribeUrl = data.recipient.subscriberUnsubscribeToken
-          ? `${this.configService.get<string>('FRONTEND_URL')}/unsubscribe?token=${data.recipient.subscriberUnsubscribeToken}`
+          ? `${apiPublicUrl}/subscribers/unsubscribe?token=${data.recipient.subscriberUnsubscribeToken}`
           : null;
+
+        // Role-aware: routes a Member to /member/settings, an Admin to
+        // /admin/settings, a Super Admin to /super-admin/settings.
+        const settingsPath = this.resolveSettingsPath(data.recipient.recipientRole);
+        const settingsUrl = settingsPath ? `${frontendUrl}${settingsPath}` : null;
 
         const emailResult = await this.emailService.send({
           to: data.recipient.email,
           subject: data.communication.subject || 'No Subject',
-          html: this.buildEmailHtml(data.communication.content, imageUrls, unsubscribeUrl),
+          html: this.buildEmailHtml(data.communication.content, imageUrls, unsubscribeUrl, settingsUrl),
         });
 
         if (!emailResult.success) {

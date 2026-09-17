@@ -40,6 +40,7 @@ interface ResolvedRecipient {
   firstName: string | null;
   lastName: string | null;
   userId: string | null;
+  unsubscribeToken: string | null;
 }
 
 @Injectable()
@@ -108,6 +109,7 @@ export class RecipientService {
       firstName: m.firstName,
       lastName: m.lastName,
       userId: m.userId,
+      unsubscribeToken: null,
     }));
   }
 
@@ -126,6 +128,7 @@ export class RecipientService {
         phoneNumber: true,
         firstName: true,
         lastName: true,
+        unsubscribeToken: true,
       },
     });
 
@@ -137,6 +140,7 @@ export class RecipientService {
       firstName: s.firstName,
       lastName: s.lastName,
       userId: null,
+      unsubscribeToken: s.unsubscribeToken,
     }));
   }
 
@@ -162,6 +166,7 @@ export class RecipientService {
       firstName: w.member.firstName,
       lastName: w.member.lastName,
       userId: w.member.userId,
+      unsubscribeToken: null,
     }));
   }
 
@@ -192,6 +197,7 @@ export class RecipientService {
       firstName: dm.member.firstName,
       lastName: dm.member.lastName,
       userId: dm.member.userId,
+      unsubscribeToken: null,
     }));
   }
 
@@ -217,6 +223,7 @@ export class RecipientService {
       firstName: w.member.firstName,
       lastName: w.member.lastName,
       userId: w.member.userId,
+      unsubscribeToken: null,
     }));
   }
 
@@ -250,6 +257,7 @@ export class RecipientService {
       firstName: m.firstName,
       lastName: m.lastName,
       userId: m.userId,
+      unsubscribeToken: null,
     }));
   }
 
@@ -266,6 +274,7 @@ export class RecipientService {
       firstName: null,
       lastName: null,
       userId: null,
+      unsubscribeToken: null,
     }));
   }
 
