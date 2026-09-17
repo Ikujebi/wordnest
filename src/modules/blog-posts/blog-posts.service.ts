@@ -345,7 +345,7 @@ export class BlogPostsService {
               <tr>
                 <td style="background-color:#fafafa;padding:24px 32px;border-top:1px solid #f3f4f6;text-align:center;">
                   <p style="margin:0 0 8px 0;font-size:12px;color:#6b7280;line-height:1.5;">
-                    You are receiving this email because you are a registered member or subscriber of <strong>Word Tabernacle</strong>.
+                    You are receiving this email because you are a registered member or subscriber of <strong>Word Tabernacle Bible Church</strong>.
                   </p>
                   <p style="margin:0;font-size:11px;color:#9ca3af;line-height:1.4;">
                     &copy; ${currentYear} Word Tabernacle. All rights reserved.
