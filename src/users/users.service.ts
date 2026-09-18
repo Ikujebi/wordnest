@@ -78,10 +78,12 @@ export class UsersService {
     });
   }
 
-  async create(dto: CreateUserDto): Promise<SanitizedUser> {
+async create(dto: CreateUserDto): Promise<SanitizedUser> {
   const {
     password,
     fullName,
+    firstName: explicitFirstName,
+    lastName: explicitLastName,
     email,
     phoneNumber,
     dateOfBirth,
@@ -89,13 +91,18 @@ export class UsersService {
     emailVerified,
     approvalStatus,
     ...data
-  } = dto;
+  } = dto as CreateUserDto & { firstName?: string; lastName?: string };
+
   const normalizedEmail = email.trim().toLowerCase();
   const passwordHash = await this.passwordService.hash(password);
 
-  const nameParts = fullName.trim().split(' ');
-  const firstName = nameParts[0];
-  const lastName = nameParts.slice(1).join(' ') || '';
+  // Prefer explicit firstName/lastName when the caller has them (e.g.
+  // AdminService.createMemberWithAccount, which already has them as
+  // separate fields from CreateAccountDto) rather than re-deriving via a
+  // naive split of fullName — splitting silently mangles compound names
+  // and re-parses data that was already structured.
+  const firstName = explicitFirstName?.trim() || fullName.trim().split(' ')[0];
+  const lastName = explicitLastName?.trim() ?? (fullName.trim().split(' ').slice(1).join(' ') || '');
 
   try {
     const user = await this.prisma.$transaction(async (tx) => {
@@ -107,11 +114,6 @@ export class UsersService {
           phoneNumber: phoneNumber?.trim() ?? null,
           passwordHash,
           mustChangePassword: mustChangePassword ?? false,
-          // Both default to the self-registration path's values (unverified,
-          // pending) unless the caller explicitly overrides them.
-          // AdminService.createMemberWithAccount passes true/APPROVED,
-          // since emailing credentials directly already proves the admin
-          // vetted the person — no separate verify-email click needed.
           emailVerified: emailVerified ?? false,
           approvalStatus: approvalStatus ?? 'PENDING',
           member: {
@@ -131,15 +133,9 @@ export class UsersService {
     const { passwordHash: _, ...sanitized } = user;
     return sanitized;
   } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
-      throw new ConflictException(
-        'An account with this email already exists.',
-      );
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new ConflictException('An account with this email already exists.');
     }
-
     this.logger.error(error);
     throw new InternalServerErrorException('Failed to create user');
   }

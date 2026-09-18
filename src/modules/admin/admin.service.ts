@@ -426,18 +426,29 @@ async createMemberWithAccount(dto: CreateAccountDto, performingAdminId: string) 
 
   const user = await this.usersService.create({
     email: dto.email,
-    fullName: `${dto.firstName} ${dto.lastName}`.trim(),
+    firstName: dto.firstName,
+    lastName: dto.lastName,
+    fullName: `${dto.firstName} ${dto.lastName}`.trim(), // for User.fullName only — Member gets firstName/lastName directly below, never re-split from this
     phoneNumber: dto.phoneNumber,
     dateOfBirth: dto.dateOfBirth,
     password: tempPassword,
     role: 'MEMBER',
     mustChangePassword: true,
+    // The admin creating this account directly — and the credentials
+    // email itself proving they control that inbox — already ARE the
+    // vetting step. No separate verify-email click or approval queue
+    // needed on top of that.
+    emailVerified: true,
+    approvalStatus: 'APPROVED',
   } as any);
 
   try {
     await this.authEmailService.sendTemporaryCredentialsEmail(user, tempPassword);
   } catch (error) {
-    this.logger.error(`Account created for ${user.email}, but credentials email failed to send.`, error instanceof Error ? error.stack : String(error));
+    this.logger.error(
+      `Account created for ${user.email}, but credentials email failed to send.`,
+      error instanceof Error ? error.stack : String(error),
+    );
   }
 
   await this.auditLogService.createLog(
