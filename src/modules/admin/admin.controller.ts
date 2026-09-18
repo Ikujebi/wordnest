@@ -7,7 +7,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
-
+import { CreateAccountDto } from './dto/create-account.dto';
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.SUPER_ADMIN, Role.ADMIN)
@@ -41,6 +41,10 @@ getUpcomingBirthdays(@Query('limit') limit?: string) {
   @Post('members')
   createMember(@Req() req: any, @Body() dto: CreateMemberDto) {
     return this.adminService.createMember(dto, req.user.id);
+  }
+  @Post('members/account')
+  createMemberAccount(@Req() req: any, @Body() dto: CreateAccountDto) {
+    return this.adminService.createMemberWithAccount(dto, req.user.id);
   }
   @Get('metrics/growth')
   getMemberGrowth() {
@@ -82,4 +86,5 @@ resendVerification(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
 deletePendingMember(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
   return this.adminService.hardDeletePendingMember(req.user.id, id);
 }
+ 
 }

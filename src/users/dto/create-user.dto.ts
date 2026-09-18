@@ -1,16 +1,18 @@
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsEmail,
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
+import { Role, ApprovalStatus } from '@prisma/client';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'user@example.com', description: 'User email address' })
@@ -41,11 +43,40 @@ export class CreateUserDto {
   @IsString()
   @IsNotEmpty()
   @MinLength(8, { message: 'Password must be at least 8 characters long.' })
-  @MaxLength(50, { message: 'Password cannot exceed 50 characters.' })
+  @MaxLength(128, { message: 'Password cannot exceed 128 characters.' })
+  @Matches(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_\-+=\[\]{};:'",.<>\/\\|`~]).{8,128}$/,
+    {
+      message:
+        'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character.',
+    },
+  )
   password!: string;
+
+  @ApiPropertyOptional({ description: 'Force a password change on next login.' })
+  @IsOptional()
+  @IsBoolean()
+  mustChangePassword?: boolean;
 
   @ApiPropertyOptional({ example: '1995-08-25', description: 'Date of birth in YYYY-MM-DD ISO format' })
   @IsOptional()
   @IsDateString({}, { message: 'Date of birth must be a valid ISO date string (YYYY-MM-DD).' })
   dateOfBirth?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Whether this account is pre-verified. Defaults to false (matching self-registration) — set true only for admin-provisioned accounts where credentials are emailed directly, since that already proves inbox ownership.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  emailVerified?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ApprovalStatus,
+    description:
+      'Defaults to PENDING (matching self-registration). Set to APPROVED for admin-provisioned accounts, which skip the review queue since an admin already vetted the person before creating the account.',
+  })
+  @IsOptional()
+  @IsEnum(ApprovalStatus, { message: 'Invalid approval status provided.' })
+  approvalStatus?: ApprovalStatus;
 }

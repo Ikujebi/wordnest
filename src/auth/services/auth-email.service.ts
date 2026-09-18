@@ -230,4 +230,42 @@ export class AuthEmailService {
       include: { user: true },
     });
   }
+  async sendTemporaryCredentialsEmail(user: { id: string; email: string; fullName: string }, tempPassword: string): Promise<void> {
+  const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'https://portal.wordtabernacle.org.ng';
+  const loginUrl = `${frontendUrl}/login`;
+
+  const contentHtml = `
+    <h2 style="color: #111827; font-size: 22px; font-weight: 700; margin: 0 0 16px 0;">Your account has been created</h2>
+    <p style="color: #4b5563; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
+      Hello <strong>${user.fullName}</strong>,<br><br>
+      An administrator has created a Word Tabernacle portal account for you. Use the temporary credentials below to log in — you'll be asked to set a new password right away.
+    </p>
+    <table role="presentation" width="100%" style="background-color: #faf7f2; border-radius: 12px; margin: 0 0 24px 0;">
+      <tr><td style="padding: 20px 24px;">
+        <p style="margin: 0 0 8px 0; font-size: 13px; color: #6b7280;">Email</p>
+        <p style="margin: 0 0 16px 0; font-size: 15px; font-weight: 600; color: #111827;">${user.email}</p>
+        <p style="margin: 0 0 8px 0; font-size: 13px; color: #6b7280;">Temporary Password</p>
+        <p style="margin: 0; font-size: 16px; font-weight: 700; color: #111827; font-family: monospace; letter-spacing: 0.5px;">${tempPassword}</p>
+      </td></tr>
+    </table>
+    <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 0 0 28px 0;">
+      <tr><td style="border-radius: 10px; background-color: #5F021F;">
+        <a href="${loginUrl}" target="_blank" style="display: inline-block; padding: 14px 28px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 10px;">
+          Log In Now
+        </a>
+      </td></tr>
+    </table>
+    <p style="color: #9ca3af; font-size: 12px; line-height: 1.4; margin: 0;">
+      For your security, please change this password immediately after logging in.
+    </p>
+  `;
+
+  const html = this.buildEmailTemplate({
+    title: 'Your Word Tabernacle account - Temporary Password',
+    preheader: 'Your portal account is ready — log in with your temporary password.',
+    contentHtml,
+  });
+
+  await this.emailService.sendEmail(user.email, 'Your Word Tabernacle Account - Temporary Password', html);
+}
 }

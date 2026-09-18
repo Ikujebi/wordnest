@@ -4,8 +4,6 @@ import {
   UnauthorizedException,
   ForbiddenException,
   ConflictException,
-  Inject,
-  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -36,7 +34,6 @@ export class AuthService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(forwardRef(() => UsersService))
     private readonly usersService: UsersService,
     private readonly configService: ConfigService,
     private readonly tokenService: AuthTokenService,
@@ -159,7 +156,14 @@ export class AuthService {
     });
 
     this.logger.log(`User ${user.email} logged in successfully.`);
-    return { user: authenticatedUser, tokens };
+
+    // mustChangePassword comes from the raw Prisma record fetched above,
+    // not from mapAuthenticatedUser() — this avoids depending on whether
+    // that method's internal select/mapping includes the field.
+    return {
+      user: { ...authenticatedUser, mustChangePassword: user.mustChangePassword },
+      tokens,
+    };
   }
 
   /**
@@ -208,17 +212,13 @@ export class AuthService {
 
     const passwordHash = await this.passwordService.hash(dto.password);
 
-    // Parse full name into first and last name components for Member profile creation
-     const firstName = dto.firstName.trim();
-    const middleName = dto.otherName?.trim() || null;
-    const lastName = dto.lastName.trim();
-    const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ')
-
     const user = await this.prisma.$transaction(async (tx) => {
-            const created = await tx.user.create({
+      const created = await tx.user.create({
         data: {
           email,
-          fullName, // computed from structured parts — every existing consumer of user.fullName keeps working unchanged
+          fullName: [dto.firstName.trim(), dto.otherName?.trim(), dto.lastName.trim()]
+          .filter(Boolean)
+          .join(' '),
           phoneNumber: dto.phoneNumber?.trim() ?? null,
           profilePictureUrl: dto.profilePictureUrl ?? null,
           profilePicturePublicId: dto.profilePicturePublicId ?? null,
@@ -226,18 +226,11 @@ export class AuthService {
           role: resolvedRole,
           isActive: true,
           emailVerified: false,
+          // Still PENDING even for invited roles — the invite establishes
+          // WHO was invited and WHAT role, not that approval can be skipped.
           approvalStatus: ApprovalStatus.PENDING,
           failedLoginAttempts: 0,
           lockedUntil: null,
-          member: {
-            create: {
-              firstName,
-              otherName: middleName, // or `middleName` if you add the new column
-              lastName,
-              email,
-              phoneNumber: dto.phoneNumber?.trim() ?? null,
-            },
-          },
         },
         include: { member: { select: { id: true } } },
       });
@@ -359,7 +352,11 @@ export class AuthService {
       throw new ForbiddenException('Your account is awaiting admin approval.');
     }
 
-    return this.userService.mapAuthenticatedUser(user);
+    const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
+
+    // Same reasoning as login(): merge mustChangePassword from the raw
+    // record rather than trusting mapAuthenticatedUser's own select shape.
+    return { ...authenticatedUser, mustChangePassword: user.mustChangePassword };
   }
 
   /**
@@ -409,6 +406,7 @@ export class AuthService {
           passwordChangedAt: new Date(),
           failedLoginAttempts: 0,
           lockedUntil: null,
+          mustChangePassword: false,
         },
       }),
       this.prisma.passwordResetToken.update({
@@ -438,6 +436,54 @@ export class AuthService {
 
     this.logger.log(`Password reset completed for ${user.email}`);
     return { message: 'Password has been reset successfully.' };
+  }
+
+  /**
+   * Change the password for a currently authenticated user, requiring
+   * their current password as proof of ownership. Also used to satisfy
+   * mustChangePassword after an admin-provisioned temp-password account
+   * logs in for the first time.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException('Account no longer exists.');
+    }
+
+    const valid = await this.passwordService.verify(user.passwordHash, currentPassword);
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect.');
+    }
+
+    const passwordHash = await this.passwordService.hash(newPassword);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        mustChangePassword: false,
+        passwordChangedAt: new Date(),
+        refreshTokenHash: null,
+      },
+    });
+
+    await this.auditLogService.createLog(
+      { id: userId },
+      {
+        action: AuditAction.PASSWORD_RESET,
+        entity: 'User',
+        entityId: userId,
+        description: `Password changed for ${user.email}.`,
+      },
+    );
+
+    this.logger.log(`Password changed for ${user.email}`);
+    return { message: 'Password changed successfully.' };
   }
 
   /**
@@ -506,6 +552,14 @@ export class AuthService {
 
   /**
    * Resend an unverified verification link message request.
+   *
+   * This is the SINGLE source of truth for issuing verification emails,
+   * used both for self-service resend (logged-in user resending their own)
+   * AND for admin-triggered resend (see UsersController's
+   * POST /users/:id/resend-verification, which calls this method directly).
+   * Do not duplicate this logic elsewhere — any parallel implementation
+   * risks using a different token scheme than verifyEmail() expects,
+   * producing links that arrive but silently fail to verify.
    */
   async resendVerificationEmail(userId: string): Promise<{ message: string }> {
     const user = await this.prisma.user.findUnique({
@@ -521,7 +575,6 @@ export class AuthService {
     const authenticatedUser = await this.userService.mapAuthenticatedUser(user);
 
     try {
-      // Delegates directly to AuthEmailService to guarantee token generation consistency
       await this.emailService.sendVerificationEmail(authenticatedUser);
     } catch (error) {
       this.logger.error(
@@ -531,6 +584,7 @@ export class AuthService {
       throw new Error('Unable to send verification email right now. Please try again shortly.');
     }
 
-    return { message: 'A new verification email has been sent.' };
+    this.logger.log(`Verification email resent to ${user.email}.`);
+    return { message: 'Verification email resent to ${user.email}' };
   }
 }

@@ -18,7 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { Role } from '@prisma/client';
-
+import { CreateAdminAccountDto } from './dto/create-admin-account.dto';
 import { SuperAdminService } from './super-admin.service';
 import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
@@ -219,4 +219,18 @@ async deletePendingAccount(@Req() req: AuthenticatedRequest, @Param('id') id: st
   if (!performingAdminId) throw new UnauthorizedException('Admin identification failed.');
   return this.superAdminService.hardDeletePendingUser(performingAdminId, id);
 }
+  @Post('admins')
+  @ApiOperation({
+    summary: 'Directly provision an ADMIN or SUPER_ADMIN account with temporary credentials',
+  })
+  async createAdminAccount(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: CreateAdminAccountDto,
+  ) {
+    const performingAdminId = req.user?.id;
+    if (!performingAdminId) {
+      throw new UnauthorizedException('Admin identification failed.');
+    }
+    return this.superAdminService.createAdminWithAccount(dto, performingAdminId);
+  }
 }

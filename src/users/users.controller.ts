@@ -19,7 +19,7 @@ import {
   UseGuards,
   Req,
   UnauthorizedException,
-  Inject,       // 👈 Add this
+  Inject,
   forwardRef,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -52,13 +52,15 @@ import { AuthService } from '../auth/auth.service';
 @ApiTags('Users')
 @ApiBearerAuth()
 @Controller('users')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.SUPER_ADMIN) // Default: Class is completely locked down to SUPER_ADMIN
 @UseInterceptors(ClassSerializerInterceptor)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     @Inject(forwardRef(() => AuthService))
     private readonly authService: AuthService,
-  ) { }
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -97,19 +99,23 @@ export class UsersController {
   }
 
   /**
-   * Keep static sub-routes ABOVE parameterized ':id' routes so NestJS doesn't evaluate 'birthdays' or 'unverified' as an ID.
+   * BIRTHDAY DIRECTORIES (Exceptions to SUPER_ADMIN restriction)
+   * Accessible by regular admins and members.
    */
   @Get('birthdays')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MEMBER)
   @ApiOperation({ summary: 'Get members with birthdays in the next N days' })
   async getUpcomingBirthdays(@Query('days') days?: string) {
     return this.usersService.getUpcomingBirthdays(
       days ? Number(days) : undefined,
     );
   }
+
   @Get('birthdays/all')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  @ApiOperation({ summary: 'Full birthday directory, filterable by month and searchable by name' })
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.MEMBER)
+  @ApiOperation({
+    summary: 'Full birthday directory, filterable by month and searchable by name',
+  })
   async getAllBirthdays(
     @Query('month') month?: string,
     @Query('search') search?: string,
@@ -119,9 +125,8 @@ export class UsersController {
       search,
     });
   }
+
   @Get('unverified')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @ApiOperation({
     summary: 'List registered users who have not yet verified their email',
   })
@@ -166,9 +171,6 @@ export class UsersController {
     return plainToInstance(UserResponseDto, rawUser);
   }
 
-  /**
-   * Upload / Replace Profile Picture
-   */
   @Patch(':id/profile-picture')
   @UseInterceptors(FileInterceptor('profilePicture'))
   @ApiConsumes('multipart/form-data')
@@ -206,7 +208,6 @@ export class UsersController {
     file: Express.Multer.File,
   ): Promise<UserResponseDto> {
     const rawUser = await this.usersService.updateProfilePicture(id, file);
-
     return plainToInstance(UserResponseDto, rawUser);
   }
 
@@ -230,8 +231,6 @@ export class UsersController {
   }
 
   @Post(':id/resend-verification')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @ApiOperation({
     summary:
       "Admin-triggered resend of an unverified account's verification email",
@@ -248,8 +247,6 @@ export class UsersController {
   }
 
   @Delete(':id/unverified')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @ApiOperation({
     summary:
       'Permanently delete an account that never completed email verification',

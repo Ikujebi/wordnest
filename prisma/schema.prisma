@@ -41,7 +41,7 @@ model User {
   approvedAt     DateTime?      @db.Timestamptz(6)
   createdById String?
   updatedById String?
-
+  mustChangePassword Boolean @default(false)
   auditLogs               AuditLog[]
   blogPosts               BlogPost[]
   assignedMessages        ContactMessage[]

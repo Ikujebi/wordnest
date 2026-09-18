@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException, InternalServerErrorException, Logger,BadRequestException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, InternalServerErrorException, Logger, BadRequestException } from '@nestjs/common';
+import { Prisma, Role, ApprovalStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -8,8 +8,11 @@ import { NotificationService } from '../notifications/notification.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberStatusDto } from './dto/update-member-status.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
+import { CreateAccountDto } from './dto/create-account.dto';
 import { AuthEmailService } from '../../auth/services/auth-email.service';
 import { AuthUserService } from '../../auth/services/auth-user.service';
+import { UsersService } from '../../users/users.service';
+import { generateTemporaryPassword } from '../../../src/common/utils/password-generator.util';
 
 @Injectable()
 export class AdminService {
@@ -19,8 +22,9 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     private readonly notificationsService: NotificationService,
-    private readonly authEmailService: AuthEmailService,   // new
-  private readonly authUserService: AuthUserService, 
+    private readonly authEmailService: AuthEmailService,
+    private readonly authUserService: AuthUserService,
+    private readonly usersService: UsersService, // plain injection — no forwardRef needed, confirmed via users.module.ts
   ) {}
 
   async getDashboardStats() {
@@ -413,5 +417,34 @@ async getUpcomingBirthdays(limit = 5) {
     .sort((a, b) => a.nextBirthdayTime - b.nextBirthdayTime)
     .slice(0, limit)
     .map(({ nextBirthdayTime, ...member }) => member);
+}
+// add to constructor: private readonly usersService: UsersService, (needs forwardRef import same pattern)
+// add imports: generateTemporaryPassword, CreateAccountDto
+
+async createMemberWithAccount(dto: CreateAccountDto, performingAdminId: string) {
+  const tempPassword = generateTemporaryPassword();
+
+  const user = await this.usersService.create({
+    email: dto.email,
+    fullName: `${dto.firstName} ${dto.lastName}`.trim(),
+    phoneNumber: dto.phoneNumber,
+    dateOfBirth: dto.dateOfBirth,
+    password: tempPassword,
+    role: 'MEMBER',
+    mustChangePassword: true,
+  } as any);
+
+  try {
+    await this.authEmailService.sendTemporaryCredentialsEmail(user, tempPassword);
+  } catch (error) {
+    this.logger.error(`Account created for ${user.email}, but credentials email failed to send.`, error instanceof Error ? error.stack : String(error));
+  }
+
+  await this.auditLogService.createLog(
+    { id: performingAdminId },
+    { action: AuditAction.CREATE_USER, entity: 'USER', entityId: user.id, description: `Created member account directly for ${user.email}` },
+  );
+
+  return { message: `Account created and credentials sent to ${user.email}.`, user };
 }
 }

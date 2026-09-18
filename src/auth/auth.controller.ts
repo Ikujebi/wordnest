@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Patch,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -16,7 +17,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RefreshAuthGuard } from './guards/refresh-auth.guard';
 
@@ -121,7 +122,16 @@ export class AuthController {
   me(@CurrentUser('id') userId: string) {
     return this.authService.me(userId);
   }
-
+  @UseGuards(JwtAuthGuard)
+@Throttle({ auth: { limit: 5, ttl: 60_000 } })
+@Patch('change-password')
+@HttpCode(HttpStatus.OK)
+changePassword(
+  @CurrentUser('id') userId: string,
+  @Body() dto: ChangePasswordDto,
+) {
+  return this.authService.changePassword(userId, dto.currentPassword, dto.newPassword);
+}
   @Public()
   @Throttle({ auth: { limit: 3, ttl: 60_000 } }) // prevents email-spam via password reset
   @Post('forgot-password')

@@ -12,4 +12,5 @@ export interface AuthenticatedUser {
   memberId: string | null;
   canAccessPrayerManagement: boolean;
   profilePictureUrl: string | null;
+  mustChangePassword: boolean;
 }

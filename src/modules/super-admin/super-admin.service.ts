@@ -4,7 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { Role, Prisma } from '@prisma/client';
+import { Role, Prisma, ApprovalStatus } from '@prisma/client';
 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -14,8 +14,11 @@ import { CloudinaryService } from '../../cloudinary/cloudinary.service';
 import { AdminQueryDto } from './dto/admin-query.dto';
 import { UpdateIndividualStatusDto } from './dto/update-individual-status.dto';
 import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
+import { CreateAdminAccountDto } from './dto/create-admin-account.dto';
 import { AuthEmailService } from '../../auth/services/auth-email.service';
 import { AuthUserService } from '../../auth/services/auth-user.service';
+import { UsersService } from '../../users/users.service';
+import { generateTemporaryPassword } from '../../../src/common/utils/password-generator.util';
 
 @Injectable()
 export class SuperAdminService {
@@ -26,6 +29,7 @@ export class SuperAdminService {
     private readonly cloudinaryService: CloudinaryService,
     private readonly authEmailService: AuthEmailService,
     private readonly authUserService: AuthUserService,
+    private readonly usersService: UsersService,
   ) {}
 
   // ==========================================
@@ -697,5 +701,60 @@ export class SuperAdminService {
     ]);
 
     return { message: 'Pending account permanently deleted.' };
+  }
+
+  /**
+   * Directly provisions an ADMIN or SUPER_ADMIN account — same
+   * temp-password + forced-change flow as
+   * AdminService.createMemberWithAccount, reusing UsersService.create()
+   * as-is (including its linked Member row) since this codebase already
+   * treats admins as able to have a Member profile — see
+   * targetIndividualUser's member select and deleteAdmin/
+   * hardDeletePendingUser's cascade cleanup above.
+   */
+  async createAdminWithAccount(dto: CreateAdminAccountDto, performingAdminId: string) {
+    const tempPassword = generateTemporaryPassword();
+
+    const user = await this.usersService.create({
+      email: dto.email,
+      fullName: dto.fullName,
+      phoneNumber: dto.phoneNumber,
+      password: tempPassword,
+      role: dto.role,
+      mustChangePassword: true,
+      emailVerified: true,
+      approvalStatus: ApprovalStatus.APPROVED,
+    });
+
+    try {
+      await this.authEmailService.sendTemporaryCredentialsEmail(user, tempPassword);
+    } catch (error) {
+      // Never fail account creation over a delivery hiccup — the account
+      // exists either way; only the email needs a retry.
+      this.auditLogService.createLog(
+        { id: performingAdminId },
+        {
+          action: AuditAction.CREATE_USER,
+          entity: 'USER',
+          entityId: user.id,
+          description: `Provisioned ${dto.role} account for ${user.email}, but the credentials email failed to send.`,
+        },
+      );
+    }
+
+    await this.auditLogService.createLog(
+      { id: performingAdminId },
+      {
+        action: AuditAction.CREATE_USER,
+        entity: 'USER',
+        entityId: user.id,
+        description: `Provisioned ${dto.role} account directly for ${user.email}`,
+      },
+    );
+
+    return {
+      message: `${dto.role} account created and credentials sent to ${user.email}.`,
+      user,
+    };
   }
 }

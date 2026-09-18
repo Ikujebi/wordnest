@@ -12,10 +12,10 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserPaginationQueryDto } from './dto/user-pagination-query.dto';
 import { USER_ERROR_MESSAGES } from './users.constants';
-import * as bcrypt from 'bcrypt';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { AuditLogService } from '../modules/audit-log/audit-log.service';
 import { AuditAction } from '../modules/audit-log/enums/audit-action.enum';
+import { AuthPasswordService } from '../auth/services/auth-password.service';
 
 export type SanitizedUser = Omit<User, 'passwordHash'>;
 
@@ -27,6 +27,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly auditLogService: AuditLogService,
+    private readonly passwordService: AuthPasswordService,
   ) {}
 
   async findAll(query: UserPaginationQueryDto): Promise<User[]> {
@@ -78,53 +79,71 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto): Promise<SanitizedUser> {
-    const { password, fullName, email, phoneNumber, dateOfBirth, ...data } = dto;
-    const normalizedEmail = email.trim().toLowerCase();
-    const passwordHash = await bcrypt.hash(password, 10);
+  const {
+    password,
+    fullName,
+    email,
+    phoneNumber,
+    dateOfBirth,
+    mustChangePassword,
+    emailVerified,
+    approvalStatus,
+    ...data
+  } = dto;
+  const normalizedEmail = email.trim().toLowerCase();
+  const passwordHash = await this.passwordService.hash(password);
 
-    const nameParts = fullName.trim().split(' ');
-    const firstName = nameParts[0];
-    const lastName = nameParts.slice(1).join(' ') || '';
+  const nameParts = fullName.trim().split(' ');
+  const firstName = nameParts[0];
+  const lastName = nameParts.slice(1).join(' ') || '';
 
-    try {
-      const user = await this.prisma.$transaction(async (tx) => {
-        return tx.user.create({
-          data: {
-            ...data,
-            fullName: fullName.trim(),
-            email: normalizedEmail,
-            phoneNumber: phoneNumber?.trim() ?? null,
-            passwordHash,
-            member: {
-              create: {
-                firstName,
-                lastName,
-                email: normalizedEmail,
-                phoneNumber: phoneNumber?.trim() ?? null,
-                dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-              },
+  try {
+    const user = await this.prisma.$transaction(async (tx) => {
+      return tx.user.create({
+        data: {
+          ...data,
+          fullName: fullName.trim(),
+          email: normalizedEmail,
+          phoneNumber: phoneNumber?.trim() ?? null,
+          passwordHash,
+          mustChangePassword: mustChangePassword ?? false,
+          // Both default to the self-registration path's values (unverified,
+          // pending) unless the caller explicitly overrides them.
+          // AdminService.createMemberWithAccount passes true/APPROVED,
+          // since emailing credentials directly already proves the admin
+          // vetted the person — no separate verify-email click needed.
+          emailVerified: emailVerified ?? false,
+          approvalStatus: approvalStatus ?? 'PENDING',
+          member: {
+            create: {
+              firstName,
+              lastName,
+              email: normalizedEmail,
+              phoneNumber: phoneNumber?.trim() ?? null,
+              dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
             },
           },
-          include: { member: true },
-        });
+        },
+        include: { member: true },
       });
+    });
 
-      const { passwordHash: _, ...sanitized } = user;
-      return sanitized;
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'An account with this email already exists.',
-        );
-      }
-
-      this.logger.error(error);
-      throw new InternalServerErrorException('Failed to create user');
+    const { passwordHash: _, ...sanitized } = user;
+    return sanitized;
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      throw new ConflictException(
+        'An account with this email already exists.',
+      );
     }
+
+    this.logger.error(error);
+    throw new InternalServerErrorException('Failed to create user');
   }
+}
 
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const data: Prisma.UserUpdateInput = {};
@@ -145,7 +164,7 @@ export class UsersService {
         if (updatedUser.member) {
           const memberData: Prisma.MemberUpdateInput = {};
           if (dto.email) memberData.email = dto.email.trim().toLowerCase();
-          
+
           if (dto.dateOfBirth) {
             memberData.dateOfBirth = new Date(dto.dateOfBirth);
           }

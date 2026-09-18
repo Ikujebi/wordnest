@@ -7,6 +7,7 @@ import { NotificationsModule } from '../notifications/notification.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { CloudinaryModule } from '../../cloudinary/cloudinary.module'; // Adjust path if needed
 import { AuthModule } from '../../auth/auth.module';
+import { UsersModule } from '../../users/users.module';
 @Module({
   imports: [
     PrismaModule,
@@ -14,6 +15,7 @@ import { AuthModule } from '../../auth/auth.module';
     AuditLogModule,
     CloudinaryModule,
     AuthModule,
+    UsersModule,
   ],
   controllers: [SuperAdminController],
   providers: [SuperAdminService],
