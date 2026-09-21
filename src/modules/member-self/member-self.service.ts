@@ -1,23 +1,50 @@
-import { Injectable, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { UpdateMemberProfileDto } from './dto/update-member-profile.dto';
 import { UpdateNotificationPrefsDto } from './dto/update-notification-prefs.dto';
+import { MemberApplyTrainingDto } from './dto/member-apply-training.dto';
+import { WorkerPipelineService } from '../worker-pipeline/worker-pipeline.service';
 
 @Injectable()
 export class MemberSelfService {
   private readonly logger = new Logger(MemberSelfService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workerPipelineService: WorkerPipelineService,
+  ) {}
 
   private async getMemberByUserId(userId: string) {
     const member = await this.prisma.member.findUnique({
       where: { userId },
       include: {
-        user: { select: { id: true, email: true, fullName: true, role: true, createdAt: true } },
-        worker: { select: { position: true, department: { select: { name: true } } } },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            role: true,
+            createdAt: true,
+          },
+        },
+        worker: {
+          select: {
+            position: true,
+            department: { select: { name: true } },
+          },
+        },
       },
     });
-    if (!member || member.deletedAt) throw new NotFoundException('Member profile not found for this account.');
+
+    if (!member || member.deletedAt) {
+      throw new NotFoundException('Member profile not found for this account.');
+    }
+
     return member;
   }
 
@@ -31,21 +58,34 @@ export class MemberSelfService {
       return await this.prisma.member.update({
         where: { id: member.id },
         data: dto,
-        include: { user: { select: { id: true, email: true, fullName: true, role: true } } },
+        include: {
+          user: {
+            select: { id: true, email: true, fullName: true, role: true },
+          },
+        },
       });
     } catch (error) {
-      this.logger.error('Failed to update member profile', error instanceof Error ? error.stack : String(error));
+      this.logger.error(
+        'Failed to update member profile',
+        error instanceof Error ? error.stack : String(error),
+      );
       throw new InternalServerErrorException('Could not update profile.');
     }
   }
 
-  async updateNotificationPrefs(userId: string, dto: UpdateNotificationPrefsDto) {
+  async updateNotificationPrefs(
+    userId: string,
+    dto: UpdateNotificationPrefsDto,
+  ) {
     const member = await this.getMemberByUserId(userId);
     return this.prisma.member.update({ where: { id: member.id }, data: dto });
   }
 
   /** Announcements/devotionals actually sent to this member, newest first. */
-  async getMyCommunications(userId: string, type?: 'ANNOUNCEMENT' | 'DEVOTIONAL' | string) {
+  async getMyCommunications(
+    userId: string,
+    type?: 'ANNOUNCEMENT' | 'DEVOTIONAL' | string,
+  ) {
     const member = await this.getMemberByUserId(userId);
 
     return this.prisma.communicationRecipient.findMany({
@@ -72,4 +112,25 @@ export class MemberSelfService {
       orderBy: { event: { startDate: 'desc' } },
     });
   }
+
+  async getOpenCohort() {
+    const cohort = await this.workerPipelineService.getOpenCohort();
+    return { isOpen: !!cohort, name: cohort?.name ?? null };
+  }
+
+  async applyForWorkerTraining(userId: string, dto: MemberApplyTrainingDto) {
+    const member = await this.getMemberByUserId(userId);
+    return this.workerPipelineService.applyAsMember(
+      member.id,
+      dto.departmentId,
+      dto.notes,
+    );
+  }
+  async listDepartmentsForApplication() {
+  return this.prisma.department.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
+}
 }

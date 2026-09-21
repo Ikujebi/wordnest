@@ -2,7 +2,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
-  Logger,
+  Logger,BadRequestException,ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { WorkerInTraining, Prisma, NotificationType } from '@prisma/client';
@@ -357,4 +357,103 @@ export class WorkerPipelineService {
 
     return this.findOne(id);
   }
+  async getOpenCohort() {
+  return this.prisma.workerCohort.findFirst({ where: { isOpen: true } });
+}
+
+async openCohort(name: string, adminId: string) {
+  return this.prisma.$transaction(async (tx) => {
+    await tx.workerCohort.updateMany({
+      where: { isOpen: true },
+      data: { isOpen: false, closedAt: new Date() },
+    });
+    const cohort = await tx.workerCohort.create({
+      data: { name, isOpen: true, openedAt: new Date(), createdById: adminId },
+    });
+    await this.auditLogService.createLog(
+      { id: adminId },
+      { action: AuditAction.CREATE_WORKER_PIPELINE, entity: 'WorkerCohort', entityId: cohort.id, description: `Opened worker cohort "${name}"` },
+    );
+    return cohort;
+  });
+}
+
+async closeCohort(adminId: string) {
+  const cohort = await this.prisma.workerCohort.findFirst({ where: { isOpen: true } });
+  if (!cohort) throw new NotFoundException('No cohort is currently open.');
+  const updated = await this.prisma.workerCohort.update({
+    where: { id: cohort.id },
+    data: { isOpen: false, closedAt: new Date() },
+  });
+  await this.auditLogService.createLog(
+    { id: adminId },
+    { action: AuditAction.UPDATE_WORKER_PIPELINE_STAGE, entity: 'WorkerCohort', entityId: cohort.id, description: `Closed worker cohort "${cohort.name}"` },
+  );
+  return updated;
+}
+
+/** Member self-application — distinct from admin-driven initializeOnboarding. */
+async applyAsMember(memberId: string, departmentId: string, notes?: string) {
+  const cohort = await this.getOpenCohort();
+  if (!cohort) throw new BadRequestException('Applications are not currently open.');
+
+  const member = await this.prisma.member.findUnique({ where: { id: memberId } });
+  if (!member) throw new NotFoundException('Member profile not found.');
+  if (member.isWorker) throw new ConflictException('You are already a registered worker.');
+
+  const existing = await this.prisma.workerInTraining.findFirst({
+    where: { memberId, isActive: true, deletedAt: null },
+  });
+  if (existing) throw new ConflictException('You already have an active application in progress.');
+
+  const pipeline = await this.prisma.workerInTraining.create({
+    data: { memberId, departmentId, notes: notes || null, stage: 'APPLIED', isActive: true, cohortId: cohort.id },
+  });
+
+  await this.notificationService.notifyAdmins({
+    title: 'New Worker Application',
+    message: 'A new member has applied for worker training.',
+    type: NotificationType.INFO,
+  });
+
+  await this.auditLogService.createLog(
+    { id: memberId },
+    { action: AuditAction.CREATE_WORKER_PIPELINE, entity: 'WorkerInTraining', entityId: pipeline.id, description: 'Member self-applied for worker training', newValues: pipeline },
+  );
+
+  return pipeline;
+}
+
+/** Random mentor assignment, drawn from active workers, optionally scoped to the trainee's department. */
+async assignRandomMentor(id: string, adminId: string) {
+  const record = await this.prisma.workerInTraining.findUnique({ where: { id, deletedAt: null } });
+  if (!record) throw new NotFoundException('Pipeline record not found.');
+
+  const candidates = await this.prisma.worker.findMany({
+    where: { isActive: true, deletedAt: null, departmentId: record.departmentId },
+  });
+  if (candidates.length === 0) {
+    throw new NotFoundException('No active workers available in this department to assign as a mentor.');
+  }
+
+  const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+
+  const updated = await this.prisma.workerInTraining.update({
+    where: { id },
+    data: { mentorWorkerId: chosen.id, mentorId: null },
+  });
+
+  await this.notificationService.notifyMember(chosen.memberId, {
+    title: 'Mentorship Assignment',
+    message: 'You have been randomly assigned as a mentor for a worker-in-training candidate.',
+    type: NotificationType.INFO,
+  });
+
+  await this.auditLogService.createLog(
+    { id: adminId },
+    { action: AuditAction.ASSIGN_WORKER_MENTOR, entity: 'WorkerInTraining', entityId: id, description: 'Mentor randomly assigned', newValues: { mentorWorkerId: chosen.id } },
+  );
+
+  return this.findOne(id);
+}
 }

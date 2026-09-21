@@ -56,4 +56,23 @@ export class WorkerPipelineController {
   ) {
     return this.pipelineService.addNote(id, dto, req.user.id);
   }
+  @Get('cohort')
+getCohortStatus() {
+  return this.pipelineService.getOpenCohort();
+}
+
+@Post('cohort/open')
+openCohort(@Req() req: any, @Body('name') name: string) {
+  return this.pipelineService.openCohort(name, req.user.id);
+}
+
+@Post('cohort/close')
+closeCohort(@Req() req: any) {
+  return this.pipelineService.closeCohort(req.user.id);
+}
+
+@Post('applications/:id/assign-random-mentor')
+assignRandomMentor(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+  return this.pipelineService.assignRandomMentor(id, req.user.id);
+}
 }

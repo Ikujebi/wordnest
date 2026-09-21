@@ -434,7 +434,19 @@ model LeadershipGrade {
   @@unique([assignmentId, memberId])
   @@index([memberId])
 }
+model WorkerCohort {
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name        String
+  isOpen      Boolean   @default(false)
+  openedAt    DateTime? @db.Timestamptz(6)
+  closedAt    DateTime? @db.Timestamptz(6)
+  createdById String?
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
 
+  applications WorkerInTraining[]
+
+  @@index([isOpen])
+}
 model WorkerInTraining {
   id                 String              @id @default(dbgenerated("(gen_random_uuid())::text"))
   memberId           String
@@ -458,6 +470,8 @@ model WorkerInTraining {
   member           Member            @relation("MemberTraining", fields: [memberId], references: [id], onDelete: Cascade)
   mentor           Member?           @relation("Mentorship", fields: [mentorId], references: [id], onDelete: SetNull)
   mentorWorker     Worker?           @relation("WorkerMentorship", fields: [mentorWorkerId], references: [id], onDelete: SetNull)
+   cohortId String?
+  cohort   WorkerCohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
 
   @@index([memberId])
   @@index([departmentId])
