@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 
-import { Prisma, CommunicationStatus, RecipientStatus, NotificationType } from '@prisma/client';
+import { Prisma, CommunicationStatus, RecipientStatus, CommunicationChannel, NotificationType } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 import { CreateBroadcastDto } from './dto/create-broadcast.dto';
@@ -624,5 +624,78 @@ export class CommunicationsService {
   }
   async dashboardOverview() {
     return this.statisticsService.dashboardOverview();
+  }
+  async handleWhatsappWebhookEvent(payload: any): Promise<void> {
+    try {
+      const entries = payload?.entry || [];
+
+      for (const entry of entries) {
+        const changes = entry?.changes || [];
+
+        for (const change of changes) {
+          if (change?.field === 'messages') {
+            const value = change.value;
+            const statuses = value?.statuses || [];
+
+            for (const statusObj of statuses) {
+              const whatsappMessageId = statusObj.id; // e.g. wamid.HBgL...
+              const status = statusObj.status; // 'sent' | 'delivered' | 'read' | 'failed'
+              const recipientPhone = statusObj.recipient_id;
+
+              this.logger.log(
+                `WhatsApp message ${whatsappMessageId} status update to '${status}' for recipient ${recipientPhone}`,
+              );
+
+              // Map WhatsApp API status to your Prisma RecipientStatus enum
+              let mappedStatus: RecipientStatus | null = null;
+              if (status === 'delivered') mappedStatus = RecipientStatus.DELIVERED;
+              else if (status === 'read') mappedStatus = RecipientStatus.READ;
+              else if (status === 'failed') mappedStatus = RecipientStatus.FAILED;
+              else if (status === 'sent') mappedStatus = RecipientStatus.SENT;
+
+              if (mappedStatus) {
+                // Find and update the communication log / recipient status
+                await this.updateStatusByMessageId(whatsappMessageId, mappedStatus, statusObj);
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(`Failed to process WhatsApp webhook payload: ${err.message}`, err.stack);
+    }
+  }
+
+  /**
+   * Helper to update database records based on WhatsApp Message ID or response string match
+   */
+  private async updateStatusByMessageId(
+    whatsappMessageId: string,
+    status: RecipientStatus,
+    rawStatusObj: any,
+  ): Promise<void> {
+    // 1. Find log entry containing the WhatsApp message ID
+    const log = await this.prisma.communicationLog.findFirst({
+      where: {
+        channel: CommunicationChannel.WHATSAPP,
+        response: { contains: whatsappMessageId },
+      },
+      select: { communicationId: true },
+    });
+
+    if (log) {
+      // 2. Update status error details if message failed
+      const errorMessage =
+        status === RecipientStatus.FAILED
+          ? rawStatusObj?.errors?.[0]?.title || 'WhatsApp Delivery Failed'
+          : undefined;
+
+      this.logger.debug(
+        `Updated log for Communication ${log.communicationId} to status: ${status}${
+          errorMessage ? ` (${errorMessage})` : ''
+        }`,
+      );
+    }
   }
 }

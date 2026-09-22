@@ -1066,6 +1066,7 @@ enum CommunicationStatus {
 enum RecipientStatus {
   PENDING
   SENT
+  DELIVERED
   FAILED
   READ
 }

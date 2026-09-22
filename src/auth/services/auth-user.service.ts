@@ -22,6 +22,7 @@ export class AuthUserService {
             isActive: user.isActive,
             memberId: user.member?.id ?? null,
             profilePictureUrl: user.profilePictureUrl ?? null,
+            mustChangePassword: user.mustChangePassword ?? false,
             canAccessPrayerManagement: await this.computeCanAccessPrayerManagement(user),
         };
     }
