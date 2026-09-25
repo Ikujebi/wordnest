@@ -133,4 +133,13 @@ export class MemberSelfService {
     orderBy: { name: 'asc' },
   });
 }
+// Add to MemberService:
+async getWorkerCohort() {
+  const activeCohort = await this.prisma.workerCohort.findFirst({
+    where: { isOpen: true, deletedAt: null },
+    select: { isOpen: true, name: true },
+  });
+
+  return activeCohort ?? { isOpen: false, name: null };
+}
 }

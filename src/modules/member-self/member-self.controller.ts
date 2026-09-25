@@ -46,4 +46,8 @@ apply(@Req() req: any, @Body() dto: MemberApplyTrainingDto) {
 listDepartments() {
   return this.memberSelfService.listDepartmentsForApplication();
 }
+@Get('worker-cohort')
+async getWorkerCohort() {
+  return this.memberSelfService.getWorkerCohort();
+}
 }

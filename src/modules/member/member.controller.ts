@@ -27,4 +27,8 @@ export class MemberController {
     // 3. Pass the actual Member ID to your dashboard service
     return this.memberService.getPersonalDashboard(memberRecord.id);
   }
+  @Get('worker-cohort')
+async getWorkerCohort() {
+  return this.memberService.getWorkerCohort();
+}
 }
