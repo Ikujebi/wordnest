@@ -69,7 +69,7 @@ export class PrayerRequestsController {
    * itself is just informational; the actual assignment action below is
    * what's restricted to leaders.
    */
-  @UseGuards(JwtAuthGuard, PrayerAccessGuard)
+  @UseGuards(JwtAuthGuard, PrayerLeaderGuard)
   @Get('eligible-assignees')
   getEligibleAssignees() {
     return this.prayerRequestsService.getEligibleAssignees();
