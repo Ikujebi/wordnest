@@ -198,20 +198,33 @@ model Department {
   trainees WorkerInTraining[]
 }
 
+model PerformanceQuestion {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  text        String   @unique
+  usageCount  Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  metrics DepartmentMetric[]
+
+  @@index([text])
+}
+
 model DepartmentMetric {
   id           String     @id @default(dbgenerated("(gen_random_uuid())::text"))
   departmentId String
   department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
-  title       String
-  weight      Float
-  targetValue Float
+  questionId String
+  question   PerformanceQuestion @relation(fields: [questionId], references: [id])
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
 
   entries DepartmentMetricEntry[]
 
+  @@unique([departmentId, questionId])
   @@index([departmentId])
 }
 
@@ -224,8 +237,8 @@ model DepartmentMetricEntry {
   metricId String
   metric   DepartmentMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
 
-  achievedValue Float
-  period        String
+  rating Int // 1-10, enforced at DTO level
+  period String
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
 
