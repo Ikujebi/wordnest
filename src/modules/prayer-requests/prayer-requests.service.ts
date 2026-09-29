@@ -39,13 +39,48 @@ export class PrayerRequestsService {
     * of the Prayer department (LEADER or MEMBER). ADMIN role alone is no
     * longer sufficient — matches PrayerAccessGuard exactly.
     */
-  async getEligibleAssignees() {
-    return this.prisma.user.findMany({
+  async getEligibleAssignees(currentUserId: string) {
+  /*
+   * ============================================================
+   * CHECK WHETHER CURRENT USER CAN ASSIGN
+   * ============================================================
+   */
+
+  const currentUser = await this.prisma.user.findUnique({
+    where: {
+      id: currentUserId,
+    },
+    select: {
+      id: true,
+      role: true,
+      member: {
+        select: {
+          id: true,
+        },
+      },
+    },
+  });
+
+  if (!currentUser) {
+    return {
+      canAssign: false,
+      assignees: [],
+    };
+  }
+
+  /*
+   * SUPER_ADMIN can always assign.
+   */
+  if (currentUser.role === Role.SUPER_ADMIN) {
+    const assignees = await this.prisma.user.findMany({
       where: {
         isActive: true,
         deletedAt: null,
+
         OR: [
-          { role: Role.SUPER_ADMIN },
+          {
+            role: Role.SUPER_ADMIN,
+          },
           {
             member: {
               departments: {
@@ -54,7 +89,11 @@ export class PrayerRequestsService {
                   deletedAt: null,
                   department: {
                     slug: {
-                      in: ['prayer', 'intercessory-prayer', 'prayer-department'],
+                      in: [
+                        'prayer',
+                        'intercessory-prayer',
+                        'prayer-department',
+                      ],
                       mode: 'insensitive',
                     },
                   },
@@ -64,11 +103,13 @@ export class PrayerRequestsService {
           },
         ],
       },
+
       select: {
         id: true,
         fullName: true,
         email: true,
         role: true,
+
         member: {
           select: {
             departments: {
@@ -76,21 +117,183 @@ export class PrayerRequestsService {
                 status: 'ACTIVE',
                 deletedAt: null,
                 department: {
-                  slug: { in: ['prayer', 'intercessory-prayer', 'prayer-department'], mode: 'insensitive' },
+                  slug: {
+                    in: [
+                      'prayer',
+                      'intercessory-prayer',
+                      'prayer-department',
+                    ],
+                    mode: 'insensitive',
+                  },
                 },
               },
+
               select: {
                 role: true,
-                department: { select: { name: true } },
+                department: {
+                  select: {
+                    name: true,
+                  },
+                },
               },
             },
           },
         },
       },
-      orderBy: { fullName: 'asc' },
+
+      orderBy: {
+        fullName: 'asc',
+      },
     });
+
+    return {
+      canAssign: true,
+      assignees,
+    };
   }
 
+  /*
+   * ============================================================
+   * CHECK PRAYER DEPARTMENT LEADER
+   * ============================================================
+   */
+
+  let canAssign = false;
+
+  if (currentUser.member?.id) {
+    const prayerLeader =
+      await this.prisma.departmentMember.findFirst({
+        where: {
+          memberId: currentUser.member.id,
+
+          role: 'LEADER',
+
+          status: 'ACTIVE',
+
+          deletedAt: null,
+
+          department: {
+            slug: {
+              in: [
+                'prayer',
+                'intercessory-prayer',
+                'prayer-department',
+              ],
+              mode: 'insensitive',
+            },
+          },
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    canAssign = !!prayerLeader;
+  }
+
+  /*
+   * ============================================================
+   * USER CANNOT ASSIGN
+   * ============================================================
+   *
+   * Do not expose the eligible list to them.
+   */
+  if (!canAssign) {
+    return {
+      canAssign: false,
+      assignees: [],
+    };
+  }
+
+  /*
+   * ============================================================
+   * USER IS A PRAYER LEADER
+   * ============================================================
+   */
+
+  const assignees = await this.prisma.user.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+
+      OR: [
+        {
+          role: Role.SUPER_ADMIN,
+        },
+        {
+          member: {
+            departments: {
+              some: {
+                status: 'ACTIVE',
+                deletedAt: null,
+
+                department: {
+                  slug: {
+                    in: [
+                      'prayer',
+                      'intercessory-prayer',
+                      'prayer-department',
+                    ],
+                    mode: 'insensitive',
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    },
+
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      role: true,
+
+      member: {
+        select: {
+          departments: {
+            where: {
+              status: 'ACTIVE',
+              deletedAt: null,
+
+              department: {
+                slug: {
+                  in: [
+                    'prayer',
+                    'intercessory-prayer',
+                    'prayer-department',
+                  ],
+                  mode: 'insensitive',
+                },
+              },
+            },
+
+            select: {
+              role: true,
+
+              department: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    orderBy: {
+      fullName: 'asc',
+    },
+  });
+
+  return {
+    canAssign: true,
+    assignees,
+  };
+}
   /**
    * Create prayer request from public website
    */

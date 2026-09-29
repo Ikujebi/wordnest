@@ -69,11 +69,13 @@ export class PrayerRequestsController {
    * itself is just informational; the actual assignment action below is
    * what's restricted to leaders.
    */
-  @UseGuards(JwtAuthGuard, PrayerLeaderGuard)
-  @Get('eligible-assignees')
-  getEligibleAssignees() {
-    return this.prayerRequestsService.getEligibleAssignees();
-  }
+@UseGuards(JwtAuthGuard)
+@Get('eligible-assignees')
+getEligibleAssignees(@Req() req: any) {
+  return this.prayerRequestsService.getEligibleAssignees(
+    req.user.id,
+  );
+}
 
   /**
    * Single item — accessible to full managers, assigned intercessors, OR the requester.
