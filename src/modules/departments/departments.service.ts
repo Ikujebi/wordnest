@@ -7,19 +7,26 @@ import {
   InternalServerErrorException,
   Logger,
   OnModuleInit,
+  HttpException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { Department, DepartmentMember, DepartmentRole, Prisma, NotificationType } from '@prisma/client';
+import {
+  Department,
+  DepartmentMember,
+  DepartmentRole,
+  Prisma,
+  NotificationType,
+} from '@prisma/client';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { AddDepartmentMemberDto } from './dto/add-department-member.dto';
 import { UpdateDepartmentMemberDto } from './dto/update-department-member.dto';
 import { AssignDepartmentLeaderDto } from './dto/assign-department-leader.dto';
 import { DepartmentPerformanceDto } from './dto/department-performance.dto';
-import { CreateDepartmentMetricDto } from './dto/create-department-metric.dto';
 import { RecordMetricEntryDto } from './dto/record-metric-entry.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { AuditAction } from '../audit-log/enums/audit-action.enum';
+import { SetDepartmentMetricsDto } from './dto/set-department-metrics.dto';
 import slugify from 'slugify';
 
 @Injectable()
@@ -35,7 +42,10 @@ export class DepartmentsService implements OnModuleInit {
   /**
    * Creates a new operational department alongside its unique search slug.
    */
-  async create(dto: CreateDepartmentDto, creatorId: string): Promise<Department> {
+  async create(
+    dto: CreateDepartmentDto,
+    creatorId: string,
+  ): Promise<Department> {
     const slug = slugify(dto.name, { lower: true, strict: true });
 
     try {
@@ -76,11 +86,21 @@ export class DepartmentsService implements OnModuleInit {
 
       return department;
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException('A department with this name or slug already exists.');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'A department with this name or slug already exists.',
+        );
       }
-      this.logger.error('Failed to create department', error instanceof Error ? error.stack : String(error));
-      throw new InternalServerErrorException('An unexpected database error occurred.');
+      this.logger.error(
+        'Failed to create department',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException(
+        'An unexpected database error occurred.',
+      );
     }
   }
 
@@ -138,7 +158,11 @@ export class DepartmentsService implements OnModuleInit {
       },
     });
 
-    if (!candidateMember || candidateMember.deletedAt || candidateMember.status !== 'ACTIVE') {
+    if (
+      !candidateMember ||
+      candidateMember.deletedAt ||
+      candidateMember.status !== 'ACTIVE'
+    ) {
       throw new BadRequestException(
         'The designated leader must be an active member of this department.',
       );
@@ -210,7 +234,9 @@ export class DepartmentsService implements OnModuleInit {
         `Failed to assign leader ${leaderId} to department ${departmentId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new InternalServerErrorException('Failed to update department leader assignment.');
+      throw new InternalServerErrorException(
+        'Failed to update department leader assignment.',
+      );
     }
   }
 
@@ -223,49 +249,55 @@ export class DepartmentsService implements OnModuleInit {
       const isActiveAssignment = dto.status ? dto.status === 'ACTIVE' : true;
 
       const existingWorker = isActiveAssignment
-        ? await this.prisma.worker.findUnique({ where: { memberId: dto.memberId } })
-        : null;
-      const isNewWorker = isActiveAssignment && (!existingWorker || existingWorker.deletedAt !== null);
-
-      const { departmentMember, worker } = await this.prisma.$transaction(async (tx) => {
-        const departmentMember = await tx.departmentMember.create({
-          data: {
-            departmentId,
-            memberId: dto.memberId,
-            role: dto.role,
-            status: dto.status,
-            createdById: creatorId,
-          },
-          include: {
-            department: true,
-          },
-        });
-
-        let worker: Prisma.WorkerGetPayload<{}> | null = null;
-
-        if (isActiveAssignment) {
-          worker = await tx.worker.upsert({
+        ? await this.prisma.worker.findUnique({
             where: { memberId: dto.memberId },
-            update: {
+          })
+        : null;
+      const isNewWorker =
+        isActiveAssignment &&
+        (!existingWorker || existingWorker.deletedAt !== null);
+
+      const { departmentMember, worker } = await this.prisma.$transaction(
+        async (tx) => {
+          const departmentMember = await tx.departmentMember.create({
+            data: {
               departmentId,
-              isActive: true,
-              deletedAt: null,
-            },
-            create: {
               memberId: dto.memberId,
-              departmentId,
-              isActive: true,
+              role: dto.role,
+              status: dto.status,
+              createdById: creatorId,
+            },
+            include: {
+              department: true,
             },
           });
 
-          await tx.member.update({
-            where: { id: dto.memberId },
-            data: { isWorker: true },
-          });
-        }
+          let worker: Prisma.WorkerGetPayload<{}> | null = null;
 
-        return { departmentMember, worker };
-      });
+          if (isActiveAssignment) {
+            worker = await tx.worker.upsert({
+              where: { memberId: dto.memberId },
+              update: {
+                departmentId,
+                isActive: true,
+                deletedAt: null,
+              },
+              create: {
+                memberId: dto.memberId,
+                departmentId,
+                isActive: true,
+              },
+            });
+
+            await tx.member.update({
+              where: { id: dto.memberId },
+              data: { isWorker: true },
+            });
+          }
+
+          return { departmentMember, worker };
+        },
+      );
 
       await this.auditLogService.createLog(
         { id: creatorId },
@@ -299,14 +331,21 @@ export class DepartmentsService implements OnModuleInit {
 
       return departmentMember;
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException('This member is already registered in this department.');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'This member is already registered in this department.',
+        );
       }
       this.logger.error(
         `Failed to assign member to department ID: ${departmentId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new InternalServerErrorException('An unexpected error occurred assigning the member roster.');
+      throw new InternalServerErrorException(
+        'An unexpected error occurred assigning the member roster.',
+      );
     }
   }
 
@@ -330,52 +369,56 @@ export class DepartmentsService implements OnModuleInit {
       });
 
       if (!existingMember || existingMember.deletedAt) {
-        throw new NotFoundException('Active roster record for this member and department combination not found.');
+        throw new NotFoundException(
+          'Active roster record for this member and department combination not found.',
+        );
       }
 
-      const statusChanging = dto.status !== undefined && dto.status !== existingMember.status;
+      const statusChanging =
+        dto.status !== undefined && dto.status !== existingMember.status;
 
-      const { updatedMember, workerStatusChanged } = await this.prisma.$transaction(async (tx) => {
-        const updatedMember = await tx.departmentMember.update({
-          where: {
-            memberId_departmentId: { memberId, departmentId },
-            deletedAt: null,
-          },
-          data,
-        });
+      const { updatedMember, workerStatusChanged } =
+        await this.prisma.$transaction(async (tx) => {
+          const updatedMember = await tx.departmentMember.update({
+            where: {
+              memberId_departmentId: { memberId, departmentId },
+              deletedAt: null,
+            },
+            data,
+          });
 
-        let workerStatusChanged: 'deactivated' | 'reactivated' | null = null;
+          let workerStatusChanged: 'deactivated' | 'reactivated' | null = null;
 
-        if (statusChanging) {
-          const worker = await tx.worker.findUnique({ where: { memberId } });
+          if (statusChanging) {
+            const worker = await tx.worker.findUnique({ where: { memberId } });
 
-          if (worker && worker.departmentId === departmentId) {
-            if (dto.status !== 'ACTIVE' && worker.isActive) {
-              await tx.worker.update({
-                where: { memberId },
-                data: { isActive: false },
-              });
-              await tx.member.update({
-                where: { id: memberId },
-                data: { isWorker: false },
-              });
-              workerStatusChanged = 'deactivated';
-            } else if (dto.status === 'ACTIVE' && !worker.isActive) {
-              await tx.worker.update({
-                where: { memberId },
-                data: { isActive: true, deletedAt: null },
-              });
-              await tx.member.update({
-                where: { id: memberId },
-                data: { isWorker: true },
-              });
-              workerStatusChanged = 'reactivated';
+            if (worker && worker.departmentId === departmentId) {
+              if (dto.status !== 'ACTIVE' && worker.isActive) {
+                await tx.worker.update({
+                  where: { memberId },
+                  data: { isActive: false },
+                });
+                await tx.member.update({
+                  where: { id: memberId },
+                  data: { isWorker: false },
+                });
+                workerStatusChanged = 'deactivated';
+              } else if (dto.status === 'ACTIVE' && !worker.isActive) {
+                await tx.worker.update({
+                  where: { memberId },
+                  data: { isActive: true, deletedAt: null },
+                });
+                await tx.member.update({
+                  where: { id: memberId },
+                  data: { isWorker: true },
+                });
+                workerStatusChanged = 'reactivated';
+              }
             }
           }
-        }
 
-        return { updatedMember, workerStatusChanged };
-      });
+          return { updatedMember, workerStatusChanged };
+        });
 
       await this.auditLogService.createLog(
         { id: updaterId },
@@ -417,15 +460,22 @@ export class DepartmentsService implements OnModuleInit {
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
 
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-        throw new NotFoundException('Active roster record for this member and department combination not found.');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException(
+          'Active roster record for this member and department combination not found.',
+        );
       }
 
       this.logger.error(
         `Error updating roster assignment details for department: ${departmentId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new InternalServerErrorException('Roster management update failed.');
+      throw new InternalServerErrorException(
+        'Roster management update failed.',
+      );
     }
   }
 
@@ -440,7 +490,9 @@ export class DepartmentsService implements OnModuleInit {
     });
 
     if (!existingMember || existingMember.deletedAt) {
-      throw new NotFoundException('Active roster record for this member and department combination not found.');
+      throw new NotFoundException(
+        'Active roster record for this member and department combination not found.',
+      );
     }
 
     try {
@@ -473,54 +525,194 @@ export class DepartmentsService implements OnModuleInit {
 
       return { message: 'Member removed from department roster.' };
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-        throw new NotFoundException('Active roster record for this member and department combination not found.');
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException(
+          'Active roster record for this member and department combination not found.',
+        );
       }
 
       this.logger.error(
         `Failed to remove member ${memberId} from department ${departmentId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new InternalServerErrorException('Failed to remove member from department roster.');
+      throw new InternalServerErrorException(
+        'Failed to remove member from department roster.',
+      );
     }
   }
+  async searchQuestions(q?: string, excludeDepartmentId?: string) {
+    const term = q?.trim();
+    return this.prisma.performanceQuestion.findMany({
+      where: {
+        ...(term ? { text: { contains: term, mode: 'insensitive' } } : {}),
+        ...(excludeDepartmentId
+          ? { metrics: { none: { departmentId: excludeDepartmentId } } }
+          : {}),
+      },
+      orderBy: [{ usageCount: 'desc' }, { text: 'asc' }],
+      take: 20,
+      select: { id: true, text: true, usageCount: true },
+    });
+  }
+  async getDepartmentMetrics(departmentId: string, period?: string) {
+    const activePeriod = period || '2026-Q3';
+    const department = await this.prisma.department.findUnique({
+      where: { id: departmentId, deletedAt: null },
+      include: {
+        metrics: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            question: true,
+            entries: { where: { period: activePeriod } },
+          },
+        },
+      },
+    });
+    if (!department) throw new NotFoundException('Department not found.');
 
+    return {
+      weightingMode: department.weightingMode,
+      period: activePeriod,
+      metrics: department.metrics.map((m) => ({
+        id: m.id,
+        questionId: m.questionId,
+        text: m.question.text,
+        weight: m.weight,
+        rating: m.entries[0]?.rating ?? null,
+      })),
+    };
+  }
   async setDepartmentMetrics(
     departmentId: string,
-    metrics: CreateDepartmentMetricDto[],
+    dto: SetDepartmentMetricsDto,
     adminId: string,
   ) {
     const department = await this.prisma.department.findUnique({
       where: { id: departmentId, deletedAt: null },
     });
+    if (!department) throw new NotFoundException('Department not found.');
 
-    if (!department) {
-      throw new NotFoundException('Department not found.');
+    const { weightingMode, metrics } = dto;
+
+    for (const m of metrics) {
+      if (!!m.questionId === !!m.questionText?.trim()) {
+        throw new BadRequestException(
+          'Each item needs exactly one of questionId or questionText.',
+        );
+      }
     }
-
-    const totalWeight = metrics.reduce((sum, m) => sum + m.weight, 0);
-    if (totalWeight !== 100) {
-      throw new BadRequestException(
-        `Total weight of department metrics must equal 100%. Provided total: ${totalWeight}%.`,
-      );
+    if (weightingMode === 'CUSTOM') {
+      if (metrics.some((m) => m.weight == null)) {
+        throw new BadRequestException(
+          'Every question needs a weight in CUSTOM mode.',
+        );
+      }
+      const total = metrics.reduce((s, m) => s + (m.weight ?? 0), 0);
+      if (total !== 100) {
+        throw new BadRequestException(
+          `Weights must total 100%. Provided total: ${total}%.`,
+        );
+      }
     }
 
     try {
-      const createdMetrics = await this.prisma.$transaction(async (tx) => {
-        await tx.departmentMetric.deleteMany({ where: { departmentId } });
+      const result = await this.prisma.$transaction(async (tx) => {
+        // 1. Resolve each item to a question id (reuse or create).
+        const resolved: { questionId: string; weight: number }[] = [];
+        const seen = new Set<string>();
 
-        return Promise.all(
-          metrics.map((m) =>
-            tx.departmentMetric.create({
-              data: {
-                title: m.title,
-                weight: m.weight,
-                targetValue: m.targetValue,
-                departmentId,
+        for (const m of metrics) {
+          let questionId = m.questionId;
+          if (questionId) {
+            const exists = await tx.performanceQuestion.findUnique({
+              where: { id: questionId },
+            });
+            if (!exists)
+              throw new NotFoundException(
+                'A selected question no longer exists.',
+              );
+          } else {
+            const text = m.questionText!.trim().replace(/\s+/g, ' ');
+            const existing = await tx.performanceQuestion.findFirst({
+              where: { text: { equals: text, mode: 'insensitive' } },
+            });
+            questionId = existing
+              ? existing.id
+              : (
+                  await tx.performanceQuestion.create({
+                    data: { text, createdById: adminId },
+                  })
+                ).id;
+          }
+          if (seen.has(questionId)) {
+            throw new BadRequestException('The same question was added twice.');
+          }
+          seen.add(questionId);
+          resolved.push({
+            questionId,
+            weight: weightingMode === 'CUSTOM' ? m.weight! : 0,
+          });
+        }
+
+        // 2. Diff against current metrics so past ratings on kept questions survive.
+        const current = await tx.departmentMetric.findMany({
+          where: { departmentId },
+        });
+        const currentIds = new Set(current.map((c) => c.questionId));
+        const removed = current.filter((c) => !seen.has(c.questionId));
+
+        if (removed.length) {
+          await tx.departmentMetric.deleteMany({
+            where: { id: { in: removed.map((r) => r.id) } },
+          });
+          await tx.performanceQuestion.updateMany({
+            where: {
+              id: { in: removed.map((r) => r.questionId) },
+              usageCount: { gt: 0 },
+            },
+            data: { usageCount: { decrement: 1 } },
+          });
+        }
+
+        for (const r of resolved) {
+          if (currentIds.has(r.questionId)) {
+            await tx.departmentMetric.update({
+              where: {
+                departmentId_questionId: {
+                  departmentId,
+                  questionId: r.questionId,
+                },
               },
-            }),
-          ),
-        );
+              data: { weight: r.weight },
+            });
+          } else {
+            await tx.departmentMetric.create({
+              data: {
+                departmentId,
+                questionId: r.questionId,
+                weight: r.weight,
+              },
+            });
+            await tx.performanceQuestion.update({
+              where: { id: r.questionId },
+              data: { usageCount: { increment: 1 } },
+            });
+          }
+        }
+
+        await tx.department.update({
+          where: { id: departmentId },
+          data: { weightingMode },
+        });
+
+        return tx.departmentMetric.findMany({
+          where: { departmentId },
+          include: { question: true },
+          orderBy: { createdAt: 'asc' },
+        });
       });
 
       await this.auditLogService.createLog(
@@ -529,18 +721,20 @@ export class DepartmentsService implements OnModuleInit {
           action: AuditAction.UPDATE_DEPARTMENT,
           entity: 'DepartmentMetric',
           entityId: departmentId,
-          description: `Super Admin configured ${metrics.length} dynamic metrics for department "${department.name}".`,
-          newValues: createdMetrics,
+          description: `Super Admin configured ${metrics.length} performance questions (${weightingMode} weighting) for department "${department.name}".`,
+          newValues: result,
         },
       );
-
-      return createdMetrics;
+      return result;
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       this.logger.error(
         `Failed setting metrics for department ID: ${departmentId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new InternalServerErrorException('Failed to set department evaluation metrics.');
+      throw new InternalServerErrorException(
+        'Failed to set department evaluation metrics.',
+      );
     }
   }
 
@@ -549,31 +743,37 @@ export class DepartmentsService implements OnModuleInit {
     entries: RecordMetricEntryDto[],
     userId: string,
   ) {
+    const valid = await this.prisma.departmentMetric.findMany({
+      where: { departmentId, id: { in: entries.map((e) => e.metricId) } },
+      select: { id: true },
+    });
+    if (valid.length !== new Set(entries.map((e) => e.metricId)).size) {
+      throw new BadRequestException(
+        'One or more questions do not belong to this department.',
+      );
+    }
+
     try {
-      const recorded = await this.prisma.$transaction(async (tx) => {
-        return Promise.all(
-          entries.map((entry) =>
-            tx.departmentMetricEntry.upsert({
-              where: {
-                departmentId_metricId_period: {
-                  departmentId,
-                  metricId: entry.metricId,
-                  period: entry.period,
-                },
-              },
-              update: {
-                achievedValue: entry.achievedValue,
-              },
-              create: {
+      const recorded = await this.prisma.$transaction(
+        entries.map((entry) =>
+          this.prisma.departmentMetricEntry.upsert({
+            where: {
+              departmentId_metricId_period: {
                 departmentId,
                 metricId: entry.metricId,
                 period: entry.period,
-                achievedValue: entry.achievedValue,
               },
-            }),
-          ),
-        );
-      });
+            },
+            update: { rating: entry.rating },
+            create: {
+              departmentId,
+              metricId: entry.metricId,
+              period: entry.period,
+              rating: entry.rating,
+            },
+          }),
+        ),
+      );
 
       await this.auditLogService.createLog(
         { id: userId },
@@ -581,136 +781,148 @@ export class DepartmentsService implements OnModuleInit {
           action: AuditAction.UPDATE_DEPARTMENT,
           entity: 'DepartmentMetricEntry',
           entityId: departmentId,
-          description: `Recorded ${entries.length} performance metric entries for department ID ${departmentId}.`,
+          description: `Recorded ${entries.length} performance ratings for department ID ${departmentId}.`,
           newValues: recorded,
         },
       );
-
       return recorded;
     } catch (error) {
       this.logger.error(
         `Failed recording metric entries for department ID: ${departmentId}`,
         error instanceof Error ? error.stack : String(error),
       );
-      throw new InternalServerErrorException('Failed to record metric entries.');
+      throw new InternalServerErrorException(
+        'Failed to record metric entries.',
+      );
     }
   }
 
   async getPerformance(period?: string): Promise<DepartmentPerformanceDto[]> {
-    const activePeriod = period || '2026-Q3';
+  const activePeriod = period || '2026-Q3';
 
-    const departments = await this.prisma.department.findMany({
-      where: {
-        deletedAt: null,
+  const departments = await this.prisma.department.findMany({
+    where: {
+      deletedAt: null,
+    },
+    include: {
+      leader: {
+        select: {
+          firstName: true,
+          lastName: true,
+        },
       },
-      include: {
-        leader: {
-          select: {
-            firstName: true,
-            lastName: true,
-          },
+      members: {
+        where: {
+          deletedAt: null,
         },
-        members: {
-          where: {
-            deletedAt: null,
-          },
-          select: {
-            id: true,
-            status: true,
-          },
+        select: {
+          id: true,
+          status: true,
         },
-        workers: {
-          where: {
-            deletedAt: null,
-          },
-          select: {
-            id: true,
-            isActive: true,
-          },
+      },
+      workers: {
+        where: {
+          deletedAt: null,
         },
-        trainees: {
-          where: {
-            deletedAt: null,
-            isActive: true,
-          },
-          select: {
-            id: true,
-          },
+        select: {
+          id: true,
+          isActive: true,
         },
-        metrics: {
-          include: {
-            entries: {
-              where: {
-                period: activePeriod,
-              },
+      },
+      trainees: {
+        where: {
+          deletedAt: null,
+          isActive: true,
+        },
+        select: {
+          id: true,
+        },
+      },
+      metrics: {
+        include: {
+          question: true,
+          entries: {
+            where: {
+              period: activePeriod,
             },
           },
         },
       },
-      orderBy: {
-        name: 'asc',
-      },
-    });
+    },
+    orderBy: {
+      name: 'asc',
+    },
+  });
 
-    return departments.map((department) => {
-      const totalMembers = department.members.length;
+  return departments.map((department) => {
+    const totalMembers = department.members.length;
 
-      const activeMembers = department.members.filter(
-        (member) => member.status === 'ACTIVE',
-      ).length;
+    const activeMembers = department.members.filter(
+      (member) => member.status === 'ACTIVE',
+    ).length;
 
-      const inactiveMembers = department.members.filter(
-        (member) => member.status !== 'ACTIVE',
-      ).length;
+    const inactiveMembers = department.members.filter(
+      (member) => member.status !== 'ACTIVE',
+    ).length;
 
-      const workers = department.workers.filter(
-        (worker) => worker.isActive,
-      ).length;
+    const workers = department.workers.filter(
+      (worker) => worker.isActive,
+    ).length;
 
-      const trainees = department.trainees.length;
+    const trainees = department.trainees.length;
 
-      let completionRate = 0;
+    let completionRate = 0;
+    let breakdown: DepartmentPerformanceDto['breakdown'];
 
-      if (department.metrics && department.metrics.length > 0) {
-        let dynamicScore = 0;
+    const metrics = department.metrics ?? [];
+    const anyRated = metrics.some((m) => m.entries[0]);
 
-        department.metrics.forEach((metric) => {
-          const entry = metric.entries[0];
-          const achieved = entry ? entry.achievedValue : 0;
-          const performanceRatio = Math.min(achieved / metric.targetValue, 1);
-          dynamicScore += performanceRatio * metric.weight;
-        });
+    if (metrics.length > 0 && anyRated) {
+      const custom = department.weightingMode === 'CUSTOM';
+      const unit = (m: (typeof metrics)[number]) => (custom ? m.weight : 1);
+      const totalWeight = metrics.reduce((s, m) => s + unit(m), 0);
+      const score = metrics.reduce((s, m) => {
+        const rating = m.entries[0]?.rating ?? 0; // unrated counts as 0
+        return s + (rating / 10) * unit(m);
+      }, 0);
 
-        completionRate = Math.round(dynamicScore);
-      } else {
-        const workerScore =
-          activeMembers === 0
-            ? 0
-            : Math.min((workers / activeMembers) * 70, 70);
+      completionRate = totalWeight > 0 ? Math.round((score / totalWeight) * 100) : 0;
+      breakdown = metrics.map((m) => ({
+        metricId: m.id,
+        question: m.question.text,
+        weight: custom ? m.weight : Math.round((100 / metrics.length) * 10) / 10,
+        rating: m.entries[0]?.rating ?? null,
+      }));
+    } else {
+      const workerScore =
+        activeMembers === 0
+          ? 0
+          : Math.min((workers / activeMembers) * 70, 70);
 
-        const trainingScore =
-          activeMembers === 0
-            ? 0
-            : Math.min((trainees / activeMembers) * 30, 30);
+      const trainingScore =
+        activeMembers === 0
+          ? 0
+          : Math.min((trainees / activeMembers) * 30, 30);
 
-        completionRate = Math.round(workerScore + trainingScore);
-      }
+      completionRate = Math.round(workerScore + trainingScore);
+    }
 
-      return {
-        id: department.id,
-        name: department.name,
-        leader: department.leader
-          ? `${department.leader.firstName} ${department.leader.lastName}`
-          : null,
-        totalMembers,
-        activeMembers,
-        inactiveMembers,
-        workers,
-        trainees,
-        completionRate: Math.min(completionRate, 100),
-      };
-    });
-  }
+    return {
+      id: department.id,
+      name: department.name,
+      leader: department.leader
+        ? `${department.leader.firstName} ${department.leader.lastName}`
+        : null,
+      totalMembers,
+      activeMembers,
+      inactiveMembers,
+      workers,
+      trainees,
+      completionRate: Math.min(completionRate, 100),
+      breakdown,
+    };
+  });
+}
 
   async getDepartmentMembers(departmentId: string) {
     const department = await this.prisma.department.findUnique({
@@ -788,8 +1000,16 @@ export class DepartmentsService implements OnModuleInit {
         toBackfill.map(async (dm) => {
           const worker = await tx.worker.upsert({
             where: { memberId: dm.memberId },
-            update: { departmentId: dm.departmentId, isActive: true, deletedAt: null },
-            create: { memberId: dm.memberId, departmentId: dm.departmentId, isActive: true },
+            update: {
+              departmentId: dm.departmentId,
+              isActive: true,
+              deletedAt: null,
+            },
+            create: {
+              memberId: dm.memberId,
+              departmentId: dm.departmentId,
+              isActive: true,
+            },
           });
           await tx.member.update({
             where: { id: dm.memberId },
@@ -807,11 +1027,17 @@ export class DepartmentsService implements OnModuleInit {
         entity: 'Worker',
         entityId: 'STARTUP_SYNC',
         description: `Backfilled ${created.length} Worker record(s) from existing active department rosters.`,
-        metadata: { count: created.length, memberIds: toBackfill.map((dm) => dm.memberId) },
+        metadata: {
+          count: created.length,
+          memberIds: toBackfill.map((dm) => dm.memberId),
+        },
       },
     );
 
-    return { message: `Backfilled ${created.length} worker record(s).`, created: created.length };
+    return {
+      message: `Backfilled ${created.length} worker record(s).`,
+      created: created.length,
+    };
   }
 
   /**
@@ -832,7 +1058,9 @@ export class DepartmentsService implements OnModuleInit {
       include: {
         department: {
           include: {
-            leader: { select: { firstName: true, lastName: true, email: true } },
+            leader: {
+              select: { firstName: true, lastName: true, email: true },
+            },
             _count: { select: { members: true } },
           },
         },
@@ -855,72 +1083,79 @@ export class DepartmentsService implements OnModuleInit {
     }));
   }
   /**
- * Soft-deletes a department and cascades to soft-delete its active
- * roster (DepartmentMember rows) and deactivate any linked Worker
- * records, mirroring MinistriesService.remove's cascade pattern.
- */
-async remove(id: string, removerId: string): Promise<{ message: string }> {
-  const department = await this.prisma.department.findUnique({
-    where: { id, deletedAt: null },
-    include: {
-      members: { where: { deletedAt: null, status: 'ACTIVE' } },
-    },
-  });
-
-  if (!department) {
-    throw new NotFoundException('Department not found.');
-  }
-
-  try {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.department.update({
-        where: { id },
-        data: { deletedAt: new Date(), updatedById: removerId },
-      });
-
-      await tx.departmentMember.updateMany({
-        where: { departmentId: id, deletedAt: null },
-        data: { deletedAt: new Date(), leftAt: new Date(), updatedById: removerId },
-      });
-
-      // Deactivate workers whose home department is being removed —
-      // does not delete Worker rows, just marks them inactive so
-      // performance/roster views stop counting them here.
-      await tx.worker.updateMany({
-        where: { departmentId: id, deletedAt: null },
-        data: { isActive: false },
-      });
+   * Soft-deletes a department and cascades to soft-delete its active
+   * roster (DepartmentMember rows) and deactivate any linked Worker
+   * records, mirroring MinistriesService.remove's cascade pattern.
+   */
+  async remove(id: string, removerId: string): Promise<{ message: string }> {
+    const department = await this.prisma.department.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        members: { where: { deletedAt: null, status: 'ACTIVE' } },
+      },
     });
 
-    await this.auditLogService.createLog(
-      { id: removerId },
-      {
-        action: AuditAction.DELETE_DEPARTMENT,
-        entity: 'Department',
-        entityId: id,
-        description: `Department "${department.name}" was deleted, along with ${department.members.length} active roster record(s).`,
-        oldValues: department,
-      },
-    );
-
-    if (department.leaderId) {
-      await this.notificationService.notifyMember(department.leaderId, {
-        title: 'Department Removed',
-        message: `The department "${department.name}", which you led, has been removed.`,
-        type: NotificationType.SYSTEM,
-      });
-    }
-
-    return { message: 'Department deleted successfully.' };
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+    if (!department) {
       throw new NotFoundException('Department not found.');
     }
-    this.logger.error(
-      `Failed to delete department ${id}`,
-      error instanceof Error ? error.stack : String(error),
-    );
-    throw new InternalServerErrorException('Failed to delete department.');
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.department.update({
+          where: { id },
+          data: { deletedAt: new Date(), updatedById: removerId },
+        });
+
+        await tx.departmentMember.updateMany({
+          where: { departmentId: id, deletedAt: null },
+          data: {
+            deletedAt: new Date(),
+            leftAt: new Date(),
+            updatedById: removerId,
+          },
+        });
+
+        // Deactivate workers whose home department is being removed —
+        // does not delete Worker rows, just marks them inactive so
+        // performance/roster views stop counting them here.
+        await tx.worker.updateMany({
+          where: { departmentId: id, deletedAt: null },
+          data: { isActive: false },
+        });
+      });
+
+      await this.auditLogService.createLog(
+        { id: removerId },
+        {
+          action: AuditAction.DELETE_DEPARTMENT,
+          entity: 'Department',
+          entityId: id,
+          description: `Department "${department.name}" was deleted, along with ${department.members.length} active roster record(s).`,
+          oldValues: department,
+        },
+      );
+
+      if (department.leaderId) {
+        await this.notificationService.notifyMember(department.leaderId, {
+          title: 'Department Removed',
+          message: `The department "${department.name}", which you led, has been removed.`,
+          type: NotificationType.SYSTEM,
+        });
+      }
+
+      return { message: 'Department deleted successfully.' };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Department not found.');
+      }
+      this.logger.error(
+        `Failed to delete department ${id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new InternalServerErrorException('Failed to delete department.');
+    }
   }
-}
 }

@@ -24,7 +24,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
-
+import { SetDepartmentMetricsDto } from './dto/set-department-metrics.dto';
 @Controller('departments')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DepartmentsController {
@@ -87,6 +87,34 @@ export class DepartmentsController {
     );
   }
 
+  @Get('questions/search')
+@Roles(Role.SUPER_ADMIN)
+async searchQuestions(
+  @Query('q') q?: string,
+  @Query('excludeDepartmentId') excludeDepartmentId?: string,
+) {
+  return this.departmentsService.searchQuestions(q, excludeDepartmentId);
+}
+
+@Get(':id/metrics')
+@Roles(Role.SUPER_ADMIN, Role.ADMIN)
+async getDepartmentMetrics(
+  @Param('id', ParseUUIDPipe) departmentId: string,
+  @Query('period') period?: string,
+) {
+  return this.departmentsService.getDepartmentMetrics(departmentId, period);
+}
+
+@Put(':id/metrics')
+@Roles(Role.SUPER_ADMIN)
+async setDepartmentMetrics(
+  @Param('id', ParseUUIDPipe) departmentId: string,
+  @Req() req: any,
+  @Body() dto: SetDepartmentMetricsDto, // was CreateDepartmentMetricDto[]
+) {
+  return this.departmentsService.setDepartmentMetrics(departmentId, dto, req.user.id);
+}
+
   /**
    * Lists active roster members of a department (e.g. for leader assignment dropdowns).
    */
@@ -136,22 +164,7 @@ export class DepartmentsController {
   ) {
     return this.departmentsService.removeMember(departmentId, memberId, req.user.id);
   }
-  /**
-   * Configures custom dynamic evaluation metrics and weight percentages (100% total).
-   */
-  @Put(':id/metrics')
-  @Roles(Role.SUPER_ADMIN)
-  async setDepartmentMetrics(
-    @Param('id', ParseUUIDPipe) departmentId: string,
-    @Req() req: any,
-    @Body() metrics: CreateDepartmentMetricDto[],
-  ) {
-    return this.departmentsService.setDepartmentMetrics(
-      departmentId,
-      metrics,
-      req.user.id,
-    );
-  }
+  
 
   /**
    * Records or updates achieved metric entries for a specific evaluation period.

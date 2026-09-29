@@ -1,16 +1,13 @@
 // dto/create-department-metric.dto.ts
-import { IsString, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsInt, Min, Max, MaxLength, MinLength } from 'class-validator';
 
 export class CreateDepartmentMetricDto {
-  @IsString()
-  title!: string;
+  @IsOptional() @IsUUID()
+  questionId?: string;          // reuse an existing question
 
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  weight!: number; // Percentage contribution (e.g., 40)
+  @IsOptional() @IsString() @MinLength(3) @MaxLength(300)
+  questionText?: string;        // or create a new one inline
 
-  @IsNumber()
-  @Min(1)
-  targetValue!: number;
+  @IsOptional() @IsInt() @Min(1) @Max(100)
+  weight?: number;              // required only in CUSTOM mode
 }

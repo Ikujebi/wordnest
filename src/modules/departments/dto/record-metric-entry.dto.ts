@@ -1,15 +1,13 @@
-import { IsString, IsNumber, IsUUID, Min, IsNotEmpty } from 'class-validator';
+// dto/record-metric-entry.dto.ts
+import { IsString, IsInt, IsUUID, Min, Max, IsNotEmpty } from 'class-validator';
 
 export class RecordMetricEntryDto {
-  @IsUUID()
-  @IsNotEmpty()
+  @IsUUID() @IsNotEmpty()
   metricId!: string;
 
-  @IsNumber()
-  @Min(0)
-  achievedValue!: number;
+  @IsInt() @Min(1) @Max(10)
+  rating!: number;
 
-  @IsString()
-  @IsNotEmpty()
-  period!: string; // e.g., "2026-Q3", "2026-07"
+  @IsString() @IsNotEmpty()
+  period!: string;
 }

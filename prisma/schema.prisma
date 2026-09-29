@@ -196,6 +196,7 @@ model Department {
   members  DepartmentMember[]
   workers  Worker[]
   trainees WorkerInTraining[]
+  weightingMode MetricWeightingMode @default(EQUAL)
 }
 
 model PerformanceQuestion {
@@ -221,7 +222,7 @@ model DepartmentMetric {
 
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
-
+  weight Int @default(0) 
   entries DepartmentMetricEntry[]
 
   @@unique([departmentId, questionId])
@@ -988,7 +989,10 @@ enum GivingType {
   DONATION
   OTHER
 }
-
+enum MetricWeightingMode {
+  EQUAL
+  CUSTOM
+}
 enum MediaType {
   IMAGE
   VIDEO
