@@ -4,12 +4,12 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { NotificationsModule } from '../notifications/notification.module';
-
+import { UsersModule } from '../../users/users.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AuthModule } from '../../auth/auth.module';
 @Module({
-  imports: [PrismaModule, AuditLogModule, NotificationsModule,AuthModule],
+  imports: [PrismaModule, AuditLogModule, NotificationsModule, UsersModule, AuthModule],
   controllers: [AdminController],
   providers: [AdminService],
   exports: [AdminService],
